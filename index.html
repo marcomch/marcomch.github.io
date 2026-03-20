@@ -7,14 +7,75 @@
     <link rel="stylesheet" href="style.css">
     <title>Trading Manual - Volatility Digits</title>
     <style>
-        /* Estilos CSS aquí (se mantienen igual) */
+        .filters-grid { display:flex; flex-direction:column; gap:6px; margin-top:6px; }
+        .filter-item { display:flex; align-items:flex-start; gap:8px; padding:7px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.08); background:rgba(255,255,255,0.03); transition:background 0.2s; }
+        .filter-item.filter-pass { background:rgba(46,204,113,0.12); border-color:rgba(46,204,113,0.35); }
+        .filter-item.filter-fail { background:rgba(231,76,60,0.12); border-color:rgba(231,76,60,0.35); }
+        .filter-item.filter-pending { background:rgba(243,156,18,0.08); border-color:rgba(243,156,18,0.25); }
+        .filter-icon { font-size:0.75rem; margin-top:2px; flex-shrink:0; width:14px; color:#888; }
+        .filter-item.filter-pass .filter-icon { color:#2ecc71; }
+        .filter-item.filter-fail .filter-icon { color:#e74c3c; }
+        .filter-item.filter-pending .filter-icon { color:#f39c12; }
+        .filter-name { font-size:0.72rem; font-weight:600; color:var(--text-primary,#ecf0f1); letter-spacing:0.02em; }
+        .filter-desc { font-size:0.70rem; color:var(--text-secondary,#95a5a6); margin-top:2px; }
+        .filter-item.filter-pass .filter-desc { color:#27ae60; }
+        .filter-item.filter-fail .filter-desc { color:#c0392b; }
     </style>
 </head>
 <body>
-    <!-- OVERLAY PARA PANELES MODALES -->
+
+    <!-- ====================== MODAL DE TOKEN (se muestra al inicio) ====================== -->
+    <div class="token-modal-overlay" id="token-modal-overlay">
+        <div class="token-modal">
+            <div class="token-modal-logo">
+                <i class="fas fa-chart-line"></i>
+                <span>TRADING MANUAL</span>
+            </div>
+            <div class="token-modal-subtitle">Volatility Digits · Deriv API</div>
+
+            <div class="token-field-label">
+                <i class="fas fa-key"></i>
+                <span>Token de API de Deriv</span>
+            </div>
+
+            <div class="token-input-wrapper">
+                <input
+                    type="password"
+                    id="token-input"
+                    class="token-input"
+                    placeholder="Pega aquí tu token de Deriv..."
+                    autocomplete="off"
+                    spellcheck="false"
+                />
+                <button class="toggle-token-visibility" id="toggle-token-btn" title="Mostrar/Ocultar token">
+                    <i class="fas fa-eye" id="toggle-token-icon"></i>
+                </button>
+            </div>
+
+            <div class="token-help">
+                <i class="fas fa-info-circle"></i>
+                <span>
+                    Obtén tu token en
+                    <a href="https://app.deriv.com/account/api-token" target="_blank" rel="noopener">
+                        app.deriv.com/account/api-token
+                    </a>.
+                    Necesitas permisos de <strong>Read</strong> y <strong>Trade</strong>.
+                    El token se guarda localmente en tu navegador.
+                </span>
+            </div>
+
+            <button class="btn-connect-token" id="btn-connect-token" onclick="conectarConToken()">
+                <i class="fas fa-plug"></i> Conectar
+            </button>
+
+            <div class="token-error-msg" id="token-error-msg"></div>
+        </div>
+    </div>
+
+    <!-- ====================== OVERLAY PARA PANELES MODALES ====================== -->
     <div class="overlay" id="overlay" onclick="closeAllModals()"></div>
 
-    <!-- PANEL DE RESULTADOS MODAL -->
+    <!-- ====================== PANEL DE RESULTADOS MODAL ====================== -->
     <div class="modal result-panel" id="result-panel">
         <div class="modal-header">
             <div class="modal-title">
@@ -25,17 +86,13 @@
                 <i class="fas fa-times"></i>
             </div>
         </div>
-        <div class="modal-content" id="result-content">
-            <!-- Contenido generado dinámicamente -->
-        </div>
+        <div class="modal-content" id="result-content"></div>
     </div>
 
-    <!-- CONTENEDOR DE NOTIFICACIONES -->
-    <div class="notification-container" id="notification-container">
-        <!-- Notificaciones se agregan aquí dinámicamente -->
-    </div>
+    <!-- ====================== CONTENEDOR DE NOTIFICACIONES ====================== -->
+    <div class="notification-container" id="notification-container"></div>
 
-    <!-- HEADER PRINCIPAL MODIFICADO -->
+    <!-- ====================== HEADER PRINCIPAL ====================== -->
     <header class="main-header">
         <div class="logo-section">
             <div class="logo">
@@ -54,12 +111,10 @@
                 <div class="price-header-container">
                     <div class="current-price-wrapper">
                         <div class="current-price" id="price">0000.000</div>
-                        <!-- INDICADOR DE NIVEL DE PRECIO -->
-                        <div id="price-level-indicator" class="price-level-indicator level-mid">
-                            MEDIO
-                        </div>
+                        <div id="price-level-indicator" class="price-level-indicator level-mid">MEDIO</div>
                     </div>
                 </div>
+                <div class="level-history-container" id="level-history"></div>
             </div>
             <div class="digit-display">
                 <div class="digit-label">DÍGITO ACTUAL</div>
@@ -68,6 +123,12 @@
         </div>
 
         <div class="header-controls">
+            <!-- Badge del token conectado -->
+            <div class="token-badge hidden" id="token-badge" onclick="cambiarToken()" title="Click para cambiar token">
+                <i class="fas fa-key"></i>
+                <span id="token-badge-text">Token: ****</span>
+            </div>
+
             <select id="asset-selector" class="asset-selector">
                 <option value="R_100">Volatility 100 Index (R_100)</option>
                 <option value="R_10" selected>Volatility 10 Index (R_10)</option>
@@ -79,7 +140,7 @@
                 <option value="frxEURUSD">Forex EUR/USD (frxEURUSD)</option>
                 <option value="frxEURJPY">Forex EUR/JPY (frxEURJPY)</option>
             </select>
-            
+
             <button onclick="startFeed()" class="btn-start">
                 <i class="fas fa-play"></i> Conectar
             </button>
@@ -89,10 +150,81 @@
         </div>
     </header>
 
-    <!-- CONTENEDOR PRINCIPAL -->
+    <!-- ====================== CONTENEDOR PRINCIPAL ====================== -->
     <div class="main-container">
 
-         <!-- PANEL CENTRAL: GRÁFICO DE DÍGITOS -->
+        <!-- PANEL IZQUIERDO: GRÁFICO DE PRECIOS -->
+        <div class="panel chart-price-panel">
+            <div class="panel-header">
+                <div>
+                    <div class="panel-title">
+                        <i class="fas fa-chart-bar"></i>
+                        <span>GRÁFICO DE PRECIOS</span>
+                    </div>
+                </div>
+                <div class="panel-controls">
+                    <button onclick="clearPriceChart()" class="btn-clear">
+                        <i class="fas fa-eraser"></i> Limpiar
+                    </button>
+                </div>
+            </div>
+
+            <div class="price-chart-container">
+                <div id="priceChartContainer" style="height:100%;width:100%;"></div>
+            </div>
+
+            <div class="level-info-panel" id="level-info-panel">
+                <div class="level-info-row">
+                    <span class="level-info-label">Nivel Actual:</span>
+                    <span class="level-info-value" id="current-level-display">MEDIO</span>
+                </div>
+                <div class="level-info-row">
+                    <span class="level-info-label">Precio Máximo:</span>
+                    <span class="level-info-value" id="max-price-display">-</span>
+                </div>
+                <div class="level-info-row">
+                    <span class="level-info-label">Precio Mínimo:</span>
+                    <span class="level-info-value" id="min-price-display">-</span>
+                </div>
+                <div class="level-info-row">
+                    <span class="level-info-label">Dígitos Verdes:</span>
+                    <span class="level-info-value" id="green-digits-count">0</span>
+                </div>
+                <div class="level-info-row">
+                    <span class="level-info-label">Último Máximo:</span>
+                    <span class="level-info-value" id="last-max-digit">-</span>
+                </div>
+                <div class="level-info-row">
+                    <span class="level-info-label">Último Mínimo:</span>
+                    <span class="level-info-value" id="last-min-digit">-</span>
+                </div>
+            </div>
+            <div class="config-section">
+                <div class="config-title">
+                    <i class="fas fa-bell"></i>
+                    <span>CONFIGURACIÓN DE ALERTAS</span>
+                </div>
+                <div class="config-controls">
+                    <div class="config-switch" id="sound-alert-switch" onclick="toggleSoundAlerts()">
+                        <i class="fas fa-volume-up"></i>
+                        <span>Alertas Sonoras</span>
+                        <div class="switch-indicator" id="sound-indicator"></div>
+                        <button class="sound-test-btn" onclick="event.stopPropagation(); testSound('win')">Test Ganancia</button>
+                        <button class="sound-test-btn" onclick="event.stopPropagation(); testSound('loss')">Test Pérdida</button>
+                    </div>
+                    <div class="config-switch" id="push-alert-switch" onclick="togglePushAlerts()">
+                        <i class="fas fa-bell"></i>
+                        <span>Notificaciones Push</span>
+                        <div class="switch-indicator" id="push-indicator"></div>
+                    </div>
+                </div>
+                <div style="margin-top:10px;font-size:0.8rem;color:var(--text-secondary);text-align:center;">
+                    <i class="fas fa-info-circle"></i> Notificaciones al iniciar/finalizar operaciones
+                </div>
+            </div>
+        </div>
+
+        <!-- PANEL CENTRAL: GRÁFICO DE DÍGITOS -->
         <div class="panel chart-digits-panel">
             <div class="panel-header">
                 <div class="panel-title">
@@ -105,463 +237,720 @@
                     </button>
                 </div>
             </div>
-            
+
             <div class="chart-container">
-                <div id="chartContainer" style="height: 100%; width: 100%;"></div>
+                <div id="chartContainer" style="height:100%;width:100%;"></div>
             </div>
-        </div>
-        
-        <!-- PANEL IZQUIERDO: GRÁFICO DE PRECIOS -->
-        <div class="panel chart-price-panel">
-            <div class="panel-header">
-                <div class="panel-title">
-                    <i class="fas fa-chart-bar"></i>
-                    <span>GRÁFICO DE PRECIOS</span>
-                </div>
-                <div class="panel-controls">
-                    <button onclick="clearPriceChart()" class="btn-clear">
-                        <i class="fas fa-eraser"></i> Limpiar
-                    </button>
-                </div>
-            </div>
-            
-            <div class="price-chart-container">
-                <div id="priceChartContainer" style="height: 100%; width: 100%;"></div>
-            </div>
+
             <div class="digit-tracker">
                 <div class="tracker-header">
                     <i class="fas fa-list-ol"></i>
                     <span>ÚLTIMOS DÍGITOS</span>
                     <span class="count-badge" id="digit-count">0</span>
-                    <span class="count-badge" style="background: #2ecc71;" id="green-digit-count-badge">0</span>
+                    <span class="count-badge" style="background:#2ecc71;" id="green-digit-count-badge">0</span>
                 </div>
-                <div class="digits-container" id="digits-container">
-                    <!-- Dígitos se muestran aquí -->
+                <div class="digits-container" id="digits-container"></div>
+            </div>
+        </div>
+
+        <!-- PANEL DERECHO: TRADING AUTOMÁTICO SOLO CALL -->
+        <div class="panel trading-panel">
+            <div class="panel-header">
+                <div>
+                    <div class="panel-title">
+                        <i class="fas fa-brain"></i>
+                        <span id="trading-panel-title">TRADING AUTOMÁTICO</span>
+                    </div>
+                    <div class="panel-subtitle" id="trading-panel-subtitle">Expiración: 5 ticks | Solo señales CALL</div>
+                </div>
+            </div>
+
+            <!-- Indicador de modo fijo -->
+            <div class="mode-description" id="mode-description" style="margin-bottom:8px;">
+                <i class="fas fa-robot"></i>
+                <span>Modo Automático — Opera únicamente señales CALL confirmadas. Las señales PUT se muestran como información sin ejecutar.</span>
+            </div>
+
+            <div class="trading-controls">
+                <div class="stake-control">
+                    <label class="control-label">
+                        <i class="fas fa-dollar-sign"></i> MONTO A OPERAR ($)
+                    </label>
+                    <div class="stake-input-container">
+                        <input type="number" id="trading-stake" class="stake-input" value="1" min="0.1" step="0.1">
+                        <div class="stake-buttons">
+                            <button class="btn-stake-adjust" onclick="adjustStake(0.1)">+0.1</button>
+                            <button class="btn-stake-adjust" onclick="adjustStake(1)">+1</button>
+                            <button class="btn-stake-adjust" onclick="adjustStake(5)">+5</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Botones ocultos — requeridos internamente por executeTrade y highlightTradeButton -->
+                <div class="action-buttons" style="display:none;">
+                    <button class="btn-call" onclick="executeTrade('CALL')">
+                        <div class="btn-content">
+                            <i class="fas fa-arrow-up"></i>
+                            <div class="btn-text">
+                                <div class="btn-main-text">CALL</div>
+                                <div class="btn-sub-text">Compra Alcista</div>
+                            </div>
+                            <div class="btn-stake" id="call-stake">$1.00</div>
+                        </div>
+                    </button>
+                    <button class="btn-put" onclick="executeTrade('PUT')">
+                        <div class="btn-content">
+                            <i class="fas fa-arrow-down"></i>
+                            <div class="btn-text">
+                                <div class="btn-main-text">PUT</div>
+                                <div class="btn-sub-text">Compra Bajista</div>
+                            </div>
+                            <div class="btn-stake" id="put-stake">$1.00</div>
+                        </div>
+                    </button>
+                </div>
+
+                <!-- MONITOR DE OPERACIÓN -->
+                <div id="trade-monitor" class="hidden">
+                    <div class="monitor-container">
+                        <div class="monitor-header">
+                            <div class="monitor-title">
+                                <i class="fas fa-chart-line"></i>
+                                <span>MONITOREO DE OPERACIÓN</span>
+                                <span id="ticks-remaining" class="ticks-remaining">5 ticks</span>
+                            </div>
+                            <div id="monitor-status" class="monitor-status active">
+                                <i class="fas fa-circle"></i>
+                                <span>ACTIVA</span>
+                            </div>
+                        </div>
+
+                        <div class="monitor-chart" id="monitor-chart">
+                            <canvas id="monitor-canvas" class="monitor-chart-canvas"></canvas>
+                            <div class="chart-legend" id="chart-legend">
+                                <div class="legend-item">
+                                    <div class="legend-color legend-entry"></div>
+                                    <span>Entrada</span>
+                                </div>
+                                <div class="legend-item">
+                                    <div class="legend-color legend-current"></div>
+                                    <span>Actual</span>
+                                </div>
+                            </div>
+                            <div class="chart-points-info" id="chart-points-info">Ticks: 0</div>
+                        </div>
+
+                        <div class="monitor-info-panel" id="monitor-info-panel">
+                            <div class="monitor-info-item">
+                                <div class="monitor-info-label"><i class="fas fa-sign-in-alt"></i> Entrada (Real)</div>
+                                <div class="monitor-info-value" id="info-entry-price">-</div>
+                            </div>
+                            <div class="monitor-info-item">
+                                <div class="monitor-info-label"><i class="fas fa-dollar-sign"></i> Actual (Real)</div>
+                                <div class="monitor-info-value" id="info-current-price">-</div>
+                            </div>
+                            <div class="monitor-info-item">
+                                <div class="monitor-info-label"><i class="fas fa-exchange-alt"></i> Diferencia</div>
+                                <div class="monitor-info-value" id="info-price-difference">-</div>
+                            </div>
+                            <div class="monitor-info-item">
+                                <div class="monitor-info-label"><i class="fas fa-percentage"></i> %</div>
+                                <div class="monitor-info-value" id="info-percentage-change">-</div>
+                            </div>
+                            <div class="monitor-info-item">
+                                <div class="monitor-info-label"><i class="fas fa-clock"></i> Tiempo</div>
+                                <div class="monitor-info-value" id="info-elapsed-time">00:00</div>
+                            </div>
+                            <div class="monitor-info-item">
+                                <div class="monitor-info-label"><i class="fas fa-bolt"></i> Estado</div>
+                                <div class="monitor-info-value" id="info-trade-state">-</div>
+                            </div>
+                            <div class="monitor-info-item">
+                                <div class="monitor-info-label"><i class="fas fa-chart-bar"></i> Tick</div>
+                                <div class="monitor-info-value" id="info-current-tick">0/5</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="trade-info">
+                    <div class="info-card">
+                        <div class="info-label">Última Operación</div>
+                        <div class="info-value" id="last-trade">-</div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-label">Estado</div>
+                        <div class="info-value" id="trade-status">LISTO</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="balance-info">
+                <div class="balance-card">
+                    <div class="balance-label"><i class="fas fa-wallet"></i> Saldo Actual</div>
+                    <div class="balance-amount" id="balance-amount">$0.00</div>
+                </div>
+                <div class="balance-card">
+                    <div class="balance-label"><i class="fas fa-chart-bar"></i> Profit/Loss Total</div>
+                    <div class="balance-amount" id="total-profit">$0.00</div>
+                </div>
+            </div>
+
+            <!-- CONFIG ALERTAS -->
+            
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label"><i class="fas fa-trophy"></i> Operaciones Ganadas</div>
+                    <div class="stat-value positive" id="wins-count">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label"><i class="fas fa-times-circle"></i> Operaciones Perdidas</div>
+                    <div class="stat-value negative" id="losses-count">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label"><i class="fas fa-exchange-alt"></i> Total Operaciones</div>
+                    <div class="stat-value" id="total-trades">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label"><i class="fas fa-percentage"></i> Tasa de Éxito</div>
+                    <div class="stat-value" id="win-rate">0%</div>
                 </div>
             </div>
         </div>
-        
-       
-        
-        <!-- PANEL DERECHO: TRADING MANUAL -->
-        
+
+        <!-- PANEL ESTRATEGIA: ANALIZADOR DE PATRÓN 5 DÍGITOS -->
+        <div class="panel strategy-panel" id="strategy-panel">
+            <div class="panel-header">
+                <div>
+                    <div class="panel-title">
+                        <i class="fas fa-brain"></i>
+                        <span>ESTRATEGIA CARTESIANA</span>
+                    </div>
+                    <div class="panel-subtitle">Patrón 5 dígitos | CALL: 3R+2A · PUT: 3A+2R | + 3 Filtros de confirmación</div>
+                </div>
+            </div>
+
+            <!-- ÚLTIMOS 5 DÍGITOS DEL PATRÓN -->
+            <div class="strategy-section">
+                <div class="strategy-label"><i class="fas fa-list-ol"></i> PATRÓN ACTUAL (5 DÍGITOS)</div>
+                <div class="pattern-digits-row" id="pattern-digits-row">
+                    <div class="pattern-placeholder">Esperando dígitos...</div>
+                </div>
+            </div>
+
+            <!-- ANÁLISIS AZULES -->
+            <div class="strategy-section">
+                <div class="strategy-label" style="color:#3498db;"><i class="fas fa-arrow-up"></i> DÍGITOS AZULES — para PUT necesitas 3</div>
+                <div class="strategy-analysis-row">
+                    <div class="analysis-digits" id="blue-digits-display">-</div>
+                    <div class="analysis-direction" id="blue-direction">—</div>
+                </div>
+            </div>
+
+            <!-- ANÁLISIS ROJOS -->
+            <div class="strategy-section">
+                <div class="strategy-label" style="color:#e74c3c;"><i class="fas fa-arrow-down"></i> DÍGITOS ROJOS — para CALL necesitas 3</div>
+                <div class="strategy-analysis-row">
+                    <div class="analysis-digits" id="red-digits-display">-</div>
+                    <div class="analysis-direction" id="red-direction">—</div>
+                </div>
+            </div>
+
+            <!-- FILTROS DE CONFIRMACIÓN (3 nuevos filtros) -->
+            <div class="strategy-section" id="filters-section" style="display:none;">
+                <div class="strategy-label" style="color:#f39c12;">
+                    <i class="fas fa-filter"></i> FILTROS DE CONFIRMACIÓN
+                </div>
+                <div class="filters-grid" id="filters-grid">
+                    <!-- F1 -->
+                    <div class="filter-item" id="filter1-item">
+                        <div class="filter-icon" id="filter1-icon"><i class="fas fa-circle"></i></div>
+                        <div class="filter-text">
+                            <div class="filter-name">Filtro 1 — Último dígito dominante</div>
+                            <div class="filter-desc" id="filter1-desc">—</div>
+                        </div>
+                    </div>
+                    <!-- F2 -->
+                    <div class="filter-item" id="filter2-item">
+                        <div class="filter-icon" id="filter2-icon"><i class="fas fa-circle"></i></div>
+                        <div class="filter-text">
+                            <div class="filter-name">Filtro 2 — Amplitud del grupo minoritario</div>
+                            <div class="filter-desc" id="filter2-desc">—</div>
+                        </div>
+                    </div>
+                    <!-- F3 -->
+                    <div class="filter-item" id="filter3-item">
+                        <div class="filter-icon" id="filter3-icon"><i class="fas fa-circle"></i></div>
+                        <div class="filter-text">
+                            <div class="filter-name">Filtro 3 — Convergencia del grupo dominante</div>
+                            <div class="filter-desc" id="filter3-desc">—</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SEÑAL FINAL -->
+            <div class="strategy-signal-box" id="strategy-signal-box">
+                <div class="signal-icon" id="signal-icon"><i class="fas fa-hourglass-half"></i></div>
+                <div class="signal-text" id="signal-text">ANALIZANDO...</div>
+                <div class="signal-detail" id="signal-detail">Esperando patrón completo</div>
+            </div>
+
+            <!-- HISTORIAL DE SEÑALES -->
+            <div class="strategy-section" style="margin-top:10px;">
+                <div class="strategy-label"><i class="fas fa-history"></i> HISTORIAL DE SEÑALES</div>
+                <div class="signals-history" id="signals-history"></div>
+            </div>
+
+            <!-- ESTADÍSTICAS SEÑALES -->
+            <div class="strategy-stats-row">
+                <div class="strategy-stat">
+                    <div class="strategy-stat-label">CALL</div>
+                    <div class="strategy-stat-value positive" id="signal-calls">0</div>
+                </div>
+                <div class="strategy-stat">
+                    <div class="strategy-stat-label">PUT</div>
+                    <div class="strategy-stat-value negative" id="signal-puts">0</div>
+                </div>
+                <div class="strategy-stat">
+                    <div class="strategy-stat-label">SIN SEÑAL</div>
+                    <div class="strategy-stat-value" id="signal-none">0</div>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <!-- INCLUIR CANVASJS -->
+    <!-- ====================== CANVASJS ====================== -->
     <script src="https://canvasjs.com/assets/script/canvasjs.min.js"></script>
 
-    <!-- SCRIPT JAVASCRIPT -->
+    <!-- ====================== JAVASCRIPT ====================== -->
     <script>
+    'use strict';
+
     // ====================== VARIABLES GLOBALES ======================
-    let ws = null;
-    let derivWs = null;
-    let running = false;
-    let currentAsset = "R_10";
-    let lastPrice = null;
-    let tickCount = 0;
-    let digits = [];
-    let ticksHistory = [];
-    let lastTickTime = null;
+    let ws            = null;
+    let derivWs       = null;
+    let running       = false;
+    let isConnecting  = false;   // Evita múltiples reconexiones simultáneas
+    let DERIV_API_TOKEN = '';    // Se asigna desde el modal de token
+    const DURATION    = 5;
+
+    let currentAsset  = 'R_10';
+    let lastPrice     = null;
+    let tickCount     = 0;
+    let digits        = [];
+    let ticksHistory  = [];
     let ticksPerMinute = 0;
-    let ticksCounter = 0;
-    let minuteTimer = null;
-    
-    // ====================== NUEVAS VARIABLES PARA DETECCIÓN DE MÁXIMOS/MÍNIMOS ======================
-    let priceHistory = []; // Historial de precios para detectar máximos/mínimos
-    const PRICE_HISTORY_LENGTH = 20; // Usar últimos 20 precios para determinar nivel
-    let currentPriceLevel = 'mid'; // 'max', 'min', o 'mid'
-    let maxPrice = 0;
-    let minPrice = Infinity;
-    let greenDigitsCount = 0;
-    let lastMaxDigit = null;
-    let lastMinDigit = null;
-    
-    // ====================== DATOS DE TRADING ======================
-    let balance = 10000.00; // Saldo inicial simulado
-    let totalProfit = 0.00;
-    let wins = 0;
-    let losses = 0;
-    let totalTrades = 0;
-    let tradingStake = 1.00;
+    let ticksCounter  = 0;
+    let minuteTimer   = null;
+
+    // Detección de máximos/mínimos
+    let priceHistory       = [];
+    const PRICE_HISTORY_LENGTH = 20;
+    let currentPriceLevel  = 'mid';
+    let maxPrice           = 0;
+    let minPrice           = Infinity;
+    let greenDigitsCount   = 0;
+    let lastMaxDigit       = null;
+    let lastMinDigit       = null;
+
+    // Trading
+    let balance        = 0;
+    let totalProfit    = 0;
+    let wins           = 0;
+    let losses         = 0;
+    let totalTrades    = 0;
+    let tradingStake   = 1.00;
     let currentContract = null;
-    let isTrading = false;
-    
-    // ====================== VARIABLES PARA MONITOREO MEJORADO ======================
-    let activeTrade = null;
-    let monitorInterval = null;
-    let tradeTicksRemaining = 5; // Expiración: 5 ticks
-    let tradeStartTime = null;
-    let monitorCanvas = null;
-    let monitorCtx = null;
-    let priceHistoryData = []; // Datos para el gráfico de monitoreo
-    const MAX_MONITOR_POINTS = 15; // REDUCIDO: Máximo de puntos en el gráfico (solo cambios)
-    
-    // ====================== NUEVAS VARIABLES PARA SISTEMA DE ALERTAS ======================
-    let soundAlertsEnabled = true; // Alertas sonoras activadas por defecto
-    let pushAlertsEnabled = true;  // Notificaciones push activadas por defecto
-    let audioContext = null;
-    let gainNode = null;
-    
-    // ====================== HISTORIAL DE OPERACIONES ======================
-    let operationsHistory = [];
-    const MAX_HISTORY = 50;
-    
-    // ====================== HISTORIAL DE DÍGITOS ======================
-    let digitHistory = [];
-    
-    // ====================== HISTORIAL DE NIVELES PARA VISUALIZACIÓN ======================
-    let levelHistory = []; // Historial de niveles para mostrar en header
-    
-    // ====================== ELEMENTOS DEL DOM ======================
-    const priceEl = document.getElementById("price");
-    const currentDigitEl = document.getElementById("current-digit");
-    const balanceEl = document.getElementById("balance-amount");
-    const totalProfitEl = document.getElementById("total-profit");
-    const winsEl = document.getElementById("wins-count");
-    const lossesEl = document.getElementById("losses-count");
-    const totalTradesEl = document.getElementById("total-trades");
-    const winRateEl = document.getElementById("win-rate");
-    const lastTradeEl = document.getElementById("last-trade");
-    const tradeStatusEl = document.getElementById("trade-status");
-    const digitsContainer = document.getElementById("digits-container");
-    const digitCountEl = document.getElementById("digit-count");
-    const callStakeEl = document.getElementById("call-stake");
-    const putStakeEl = document.getElementById("put-stake");
-    const statusDot = document.getElementById("status-dot");
-    const statusText = document.getElementById("status-text");
-    
-    // ====================== NUEVOS ELEMENTOS PARA DETECCIÓN DE NIVEL ======================
-    const priceLevelIndicator = document.getElementById("price-level-indicator");
-    const greenDigitCountBadge = document.getElementById("green-digit-count-badge");
-    
-    // ====================== ELEMENTOS PARA MONITOREO MEJORADO ======================
-    const tradeMonitorEl = document.getElementById("trade-monitor");
-    const monitorStatusEl = document.getElementById("monitor-status");
-    const monitorChartEl = document.getElementById("monitor-chart");
-    const ticksRemainingEl = document.getElementById("ticks-remaining");
-    const chartPointsInfo = document.getElementById("chart-points-info");
-    
-    // Elementos de información del monitor
-    const infoEntryPriceEl = document.getElementById("info-entry-price");
-    const infoCurrentPriceEl = document.getElementById("info-current-price");
-    const infoPriceDifferenceEl = document.getElementById("info-price-difference");
-    const infoPercentageChangeEl = document.getElementById("info-percentage-change");
-    const infoElapsedTimeEl = document.getElementById("info-elapsed-time");
-    const infoTradeStateEl = document.getElementById("info-trade-state");
-    
-    // ====================== NUEVOS ELEMENTOS PARA CONFIGURACIÓN ======================
-    const soundAlertSwitch = document.getElementById("sound-alert-switch");
-    const soundIndicator = document.getElementById("sound-indicator");
-    const pushAlertSwitch = document.getElementById("push-alert-switch");
-    const pushIndicator = document.getElementById("push-indicator");
-    
-    // ====================== VARIABLES CANVASJS ======================
-    let digitsChart = null;     // Gráfico de dígitos
-    let priceChart = null;      // Gráfico de precios
-    let digitsDataPoints = [];
-    let priceDataPoints = [];
-    let currentPosition = 1;
+    let isTrading      = false;
+
+    // Monitor de operación
+    let activeTrade       = null;
+    let monitorInterval   = null;
+    let tradeStartTime    = null;
+    let monitorCanvas     = null;
+    let monitorCtx        = null;
+    let priceHistoryData  = [];
+    let contractTicks     = [];
+
+    // Alertas
+    let soundAlertsEnabled = true;
+    let pushAlertsEnabled  = true;
+    let audioContext       = null;
+    let gainNode           = null;
+
+    // Historial de dígitos y niveles
+    let digitHistory  = [];
+    let levelHistory  = [];
+
+    // Resultados (máx 5 en memoria para no reparselar HTML)
+    let lastResults   = [];
+
+    // ====================== CACHÉ DE ELEMENTOS DOM ======================
+    // (se asignan en window.onload cuando el DOM ya existe)
+    let priceEl, currentDigitEl, balanceEl, totalProfitEl;
+    let winsEl, lossesEl, totalTradesEl, winRateEl;
+    let lastTradeEl, tradeStatusEl, digitsContainer, digitCountEl;
+    let callStakeEl, putStakeEl, statusDot, statusText;
+    let priceLevelIndicator, levelHistoryEl, currentLevelDisplay;
+    let maxPriceDisplay, minPriceDisplay, greenDigitsCountEl;
+    let lastMaxDigitEl, lastMinDigitEl, greenDigitCountBadge;
+    let tradeMonitorEl, monitorStatusEl, monitorChartEl;
+    let ticksRemainingEl, chartPointsInfo, infoCurrentTickEl;
+    let infoEntryPriceEl, infoCurrentPriceEl, infoPriceDifferenceEl;
+    let infoPercentageChangeEl, infoElapsedTimeEl, infoTradeStateEl;
+    let soundAlertSwitch, soundIndicator, pushAlertSwitch, pushIndicator;
+
+    // CanvasJS
+    let digitsChart       = null;
+    let priceChart        = null;
+    let digitsDataPoints  = [];
+    let priceDataPoints   = [];
+    let currentPosition   = 1;
     let priceChartPosition = 1;
-    
-    // ====================== INICIALIZACIÓN ======================
-    window.onload = function() {
-        console.log("🎮 Sistema de Trading Manual cargado");
-        console.log("📊 Modo: Manual | Expiración: 5 ticks");
-        console.log("✅ Sistema de detección de máximos/mínimos activado");
-        
-        // Inicializar gráficos CanvasJS
-        initCanvasJSChart();        // Gráfico de dígitos
-        initPriceChart();           // Gráfico de precios
-        
-        // Inicializar canvas para gráfico de monitoreo
-        initMonitorCanvas();
-        
-        updateTradingDisplay();
-        updateStakeDisplay();
-        loadOperationsHistory();
-        startTicksPerMinuteCounter();
-        
-        // Inicializar historial de niveles
-        initializeLevelHistory();
-        
-        // Inicializar sistema de audio para alertas sonoras
-        initializeAudioSystem();
-        
-        // Cargar configuración de alertas desde localStorage
-        loadAlertSettings();
-        
-        // Solicitar permiso para notificaciones push
-        requestNotificationPermission();
-        
-        // Conectar a Deriv API automáticamente
-        setTimeout(conectarDerivAPI, 2000);
-    };
-    
-    // ====================== INICIALIZACIÓN DEL CANVAS DE MONITOREO ======================
-    
-    function initMonitorCanvas() {
-        monitorCanvas = document.getElementById('monitor-canvas');
-        if (!monitorCanvas) {
-            console.error("❌ No se encontró el canvas del monitor");
+
+    // Selector cacheado (se usa en funciones de tick)
+    let cachedAssetSelector = null;
+
+    // ====================== TOKEN: MODAL Y GESTIÓN ======================
+    function conectarConToken() {
+        const input   = document.getElementById('token-input');
+        const errorEl = document.getElementById('token-error-msg');
+        const btn     = document.getElementById('btn-connect-token');
+        const token   = input.value.trim();
+
+        errorEl.style.display = 'none';
+
+        if (!token || token.length < 10) {
+            errorEl.textContent = '⚠️ Ingresa un token válido.';
+            errorEl.style.display = 'block';
             return;
         }
-        
-        monitorCtx = monitorCanvas.getContext('2d');
-        
-        // Ajustar tamaño del canvas al contenedor
-        resizeMonitorCanvas();
-        
-        // Escuchar cambios de tamaño de ventana
-        window.addEventListener('resize', resizeMonitorCanvas);
-        
-        console.log("✅ Canvas de monitoreo inicializado");
+
+        DERIV_API_TOKEN = token;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Conectando...';
+
+        // Intentar autorización para validar el token
+        const testWs = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
+
+        testWs.onopen = () => {
+            testWs.send(JSON.stringify({ authorize: token }));
+        };
+
+        testWs.onmessage = (msg) => {
+            const data = JSON.parse(msg.data);
+            testWs.close();
+
+            if (data.error) {
+                DERIV_API_TOKEN = '';
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-plug"></i> Conectar';
+                errorEl.textContent = '❌ Token inválido: ' + data.error.message;
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            if (data.authorize) {
+                // Token válido
+                try { localStorage.setItem('deriv_token', token); } catch(e) {}
+
+                // Mostrar badge en header
+                const badge = document.getElementById('token-badge');
+                if (badge) {
+                    badge.classList.remove('hidden');
+                    document.getElementById('token-badge-text').textContent =
+                        'Token: ' + token.substring(0, 4) + '...' + token.slice(-4);
+                }
+
+                // Ocultar modal
+                document.getElementById('token-modal-overlay').style.display = 'none';
+
+                // Iniciar conexión Deriv
+                conectarDerivAPI();
+
+                showInternalNotification(
+                    '¡Conectado!',
+                    'Cuenta: ' + data.authorize.loginid + ' | Balance: $' + parseFloat(data.authorize.balance).toFixed(2),
+                    'success'
+                );
+            }
+        };
+
+        testWs.onerror = () => {
+            testWs.close();
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-plug"></i> Conectar';
+            errorEl.textContent = '❌ Error de conexión. Verifica tu internet.';
+            errorEl.style.display = 'block';
+        };
     }
-    
+
+    function cambiarToken() {
+        // Permite al usuario reemplazar el token
+        DERIV_API_TOKEN = '';
+        if (derivWs) { try { derivWs.close(); } catch(e) {} derivWs = null; }
+        document.getElementById('token-input').value = '';
+        document.getElementById('token-error-msg').style.display = 'none';
+        document.getElementById('btn-connect-token').disabled = false;
+        document.getElementById('btn-connect-token').innerHTML = '<i class="fas fa-plug"></i> Conectar';
+        document.getElementById('token-modal-overlay').style.display = 'flex';
+        document.getElementById('token-badge').classList.add('hidden');
+    }
+
+    // Toggle visibilidad del token
+    document.addEventListener('DOMContentLoaded', () => {
+        const toggleBtn = document.getElementById('toggle-token-btn');
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', () => {
+                const inp  = document.getElementById('token-input');
+                const icon = document.getElementById('toggle-token-icon');
+                if (inp.type === 'password') {
+                    inp.type = 'text';
+                    icon.className = 'fas fa-eye-slash';
+                } else {
+                    inp.type = 'password';
+                    icon.className = 'fas fa-eye';
+                }
+            });
+        }
+
+        // Enter en el input conecta directamente
+        const tokenInput = document.getElementById('token-input');
+        if (tokenInput) {
+            tokenInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') conectarConToken();
+            });
+        }
+    });
+
+    // ====================== INICIALIZACIÓN ======================
+    window.onload = function() {
+        // Cachear todos los elementos DOM una sola vez
+        priceEl              = document.getElementById('price');
+        currentDigitEl       = document.getElementById('current-digit');
+        balanceEl            = document.getElementById('balance-amount');
+        totalProfitEl        = document.getElementById('total-profit');
+        winsEl               = document.getElementById('wins-count');
+        lossesEl             = document.getElementById('losses-count');
+        totalTradesEl        = document.getElementById('total-trades');
+        winRateEl            = document.getElementById('win-rate');
+        lastTradeEl          = document.getElementById('last-trade');
+        tradeStatusEl        = document.getElementById('trade-status');
+        digitsContainer      = document.getElementById('digits-container');
+        digitCountEl         = document.getElementById('digit-count');
+        callStakeEl          = document.getElementById('call-stake');
+        putStakeEl           = document.getElementById('put-stake');
+        statusDot            = document.getElementById('status-dot');
+        statusText           = document.getElementById('status-text');
+        priceLevelIndicator  = document.getElementById('price-level-indicator');
+        levelHistoryEl       = document.getElementById('level-history');
+        currentLevelDisplay  = document.getElementById('current-level-display');
+        maxPriceDisplay      = document.getElementById('max-price-display');
+        minPriceDisplay      = document.getElementById('min-price-display');
+        greenDigitsCountEl   = document.getElementById('green-digits-count');
+        lastMaxDigitEl       = document.getElementById('last-max-digit');
+        lastMinDigitEl       = document.getElementById('last-min-digit');
+        greenDigitCountBadge = document.getElementById('green-digit-count-badge');
+        tradeMonitorEl       = document.getElementById('trade-monitor');
+        monitorStatusEl      = document.getElementById('monitor-status');
+        monitorChartEl       = document.getElementById('monitor-chart');
+        ticksRemainingEl     = document.getElementById('ticks-remaining');
+        chartPointsInfo      = document.getElementById('chart-points-info');
+        infoCurrentTickEl    = document.getElementById('info-current-tick');
+        infoEntryPriceEl     = document.getElementById('info-entry-price');
+        infoCurrentPriceEl   = document.getElementById('info-current-price');
+        infoPriceDifferenceEl = document.getElementById('info-price-difference');
+        infoPercentageChangeEl = document.getElementById('info-percentage-change');
+        infoElapsedTimeEl    = document.getElementById('info-elapsed-time');
+        infoTradeStateEl     = document.getElementById('info-trade-state');
+        soundAlertSwitch     = document.getElementById('sound-alert-switch');
+        soundIndicator       = document.getElementById('sound-indicator');
+        pushAlertSwitch      = document.getElementById('push-alert-switch');
+        pushIndicator        = document.getElementById('push-indicator');
+        cachedAssetSelector  = document.getElementById('asset-selector');
+
+        initCanvasJSChart();
+        initPriceChart();
+        initMonitorCanvas();
+        updateTradingDisplay();
+        updateStakeDisplay();
+        startTicksPerMinuteCounter();
+        initializeLevelHistory();
+        initializeAudioSystem();
+        loadAlertSettings();
+        requestNotificationPermission();
+        initStrategyElements();
+
+        // Cargar token guardado si existe
+        try {
+            const saved = localStorage.getItem('deriv_token');
+            if (saved) {
+                document.getElementById('token-input').value = saved;
+            }
+        } catch(e) {}
+
+        // Escuchar stake input
+        document.getElementById('trading-stake').addEventListener('input', function() {
+            tradingStake = parseFloat(this.value) || 1;
+            updateStakeDisplay();
+        });
+    };
+
+    // ====================== CANVAS DE MONITOREO ======================
+    function initMonitorCanvas() {
+        monitorCanvas = document.getElementById('monitor-canvas');
+        if (!monitorCanvas) return;
+        monitorCtx = monitorCanvas.getContext('2d');
+        resizeMonitorCanvas();
+        window.addEventListener('resize', resizeMonitorCanvas);
+    }
+
     function resizeMonitorCanvas() {
         if (!monitorCanvas || !monitorChartEl) return;
-        
-        const containerWidth = monitorChartEl.clientWidth;
-        const containerHeight = monitorChartEl.clientHeight;
-        
-        // Ajustar tamaño del canvas
-        monitorCanvas.width = containerWidth;
-        monitorCanvas.height = containerHeight;
-        
-        // Redibujar si hay datos
+        monitorCanvas.width  = monitorChartEl.clientWidth;
+        monitorCanvas.height = monitorChartEl.clientHeight;
         if (activeTrade && priceHistoryData.length > 0) {
-            drawMonitorChart();
+            drawMonitorChartWithRealData();
         }
     }
-    
-    // ====================== SISTEMA DE GRÁFICO DE MONITOREO MEJORADO ======================
-    
-    function drawMonitorChart() {
-        if (!monitorCtx || !monitorCanvas || priceHistoryData.length === 0) return;
-        
-        const width = monitorCanvas.width;
-        const height = monitorCanvas.height;
-        const padding = 20;
-        const chartWidth = width - (padding * 2);
-        const chartHeight = height - (padding * 2);
-        
-        // Limpiar canvas
+
+    // ====================== GRÁFICO MONITOR ======================
+    function drawMonitorChartWithRealData() {
+        if (!monitorCtx || !monitorCanvas || !priceHistoryData.length || !activeTrade) return;
+
+        const width      = monitorCanvas.width;
+        const height     = monitorCanvas.height;
+        const padding    = 20;
+        const chartWidth = width  - padding * 2;
+        const chartHeight = height - padding * 2;
+
         monitorCtx.clearRect(0, 0, width, height);
-        
-        // Dibujar fondo
-        drawChartBackground(width, height, padding);
-        
-        // Calcular rangos de precios
-        const prices = priceHistoryData.map(p => p.price);
+        drawChartBackground(width, height, padding, chartHeight);
+
+        const prices     = priceHistoryData.map(p => p.price);
         const entryPrice = activeTrade.entryPrice;
-        const currentPrice = activeTrade.currentPrice;
-        
-        const minPrice = Math.min(...prices, entryPrice, currentPrice);
-        const maxPrice = Math.max(...prices, entryPrice, currentPrice);
-        const priceRange = Math.max(0.0001, maxPrice - minPrice);
-        
-        // Dibujar áreas de ganancia/pérdida
-        drawProfitLossAreas(width, height, padding, chartHeight, minPrice, priceRange);
-        
-        // Dibujar líneas de referencia
-        drawReferenceLines(width, height, padding, chartHeight, minPrice, priceRange);
-        
-        // Dibujar línea del precio (SOLO con puntos significativos)
-        drawPriceLine(width, height, padding, chartWidth, chartHeight, minPrice, priceRange);
-        
-        // Dibujar punto de entrada
-        drawEntryPoint(width, height, padding, chartWidth, chartHeight, entryPrice, minPrice, priceRange);
-        
-        // Dibujar punto actual
-        drawCurrentPoint(width, height, padding, chartWidth, chartHeight, currentPrice, minPrice, priceRange);
-        
-        // Dibujar leyenda
+        const currPrice  = activeTrade.currentPrice;
+
+        const minPriceVal = prices.reduce((m, v) => v < m ? v : m, Math.min(entryPrice, currPrice));
+        const maxPriceVal = prices.reduce((m, v) => v > m ? v : m, Math.max(entryPrice, currPrice));
+        const priceRange  = Math.max(0.0001, maxPriceVal - minPriceVal);
+
+        drawProfitLossAreas(width, height, padding, chartHeight, minPriceVal, priceRange);
+        drawReferenceLines(width, height, padding, chartHeight, minPriceVal, priceRange);
+        drawPriceLineWithRealData(width, height, padding, chartWidth, chartHeight, minPriceVal, priceRange);
+        drawEntryPoint(width, height, padding, chartWidth, chartHeight, entryPrice, minPriceVal, priceRange);
+        drawCurrentPoint(width, height, padding, chartWidth, chartHeight, currPrice, minPriceVal, priceRange);
         drawChartLegend(width, height);
-        
-        // Actualizar contador de puntos
-        if (chartPointsInfo) {
-            chartPointsInfo.textContent = `Puntos: ${priceHistoryData.length}`;
-        }
+
+        if (chartPointsInfo) chartPointsInfo.textContent = `Ticks: ${priceHistoryData.length}/5`;
     }
-    
-    function drawChartBackground(width, height, padding) {
-        // Fondo del gráfico
-        monitorCtx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-        monitorCtx.fillRect(padding, padding, width - (padding * 2), height - (padding * 2));
-        
-        // Borde del gráfico
-        monitorCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+
+    function drawChartBackground(width, height, padding, chartHeight) {
+        monitorCtx.fillStyle = 'rgba(0,0,0,0.2)';
+        monitorCtx.fillRect(padding, padding, width - padding * 2, height - padding * 2);
+        monitorCtx.strokeStyle = 'rgba(255,255,255,0.1)';
         monitorCtx.lineWidth = 1;
-        monitorCtx.strokeRect(padding, padding, width - (padding * 2), height - (padding * 2));
-        
-        // Líneas de la grilla
-        monitorCtx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+        monitorCtx.strokeRect(padding, padding, width - padding * 2, height - padding * 2);
+
+        monitorCtx.strokeStyle = 'rgba(255,255,255,0.05)';
         monitorCtx.lineWidth = 0.5;
-        
-        // Líneas horizontales
-        const horizontalLines = 5;
-        for (let i = 0; i <= horizontalLines; i++) {
-            const y = padding + (i * (height - (padding * 2)) / horizontalLines);
+        for (let i = 0; i <= 5; i++) {
+            const y = padding + i * chartHeight / 5;
             monitorCtx.beginPath();
             monitorCtx.moveTo(padding, y);
             monitorCtx.lineTo(width - padding, y);
             monitorCtx.stroke();
         }
-        
-        // Líneas verticales (marcas de tiempo)
-        const verticalLines = Math.min(10, priceHistoryData.length);
-        for (let i = 0; i < verticalLines; i++) {
-            const x = padding + (i * (width - (padding * 2)) / verticalLines);
-            monitorCtx.beginPath();
-            monitorCtx.moveTo(x, padding);
-            monitorCtx.lineTo(x, height - padding);
-            monitorCtx.stroke();
-        }
     }
-    
-    function drawProfitLossAreas(width, height, padding, chartHeight, minPrice, priceRange) {
+
+    function drawProfitLossAreas(width, height, padding, chartHeight, minPv, priceRange) {
         if (!activeTrade) return;
-        
-        const entryPrice = activeTrade.entryPrice;
-        const entryY = padding + chartHeight - ((entryPrice - minPrice) / priceRange * chartHeight);
-        
-        // Área de ganancia (verde claro)
-        monitorCtx.fillStyle = 'rgba(46, 204, 113, 0.05)';
-        monitorCtx.fillRect(padding, padding, width - (padding * 2), entryY - padding);
-        
-        // Área de pérdida (rojo claro)
-        monitorCtx.fillStyle = 'rgba(231, 76, 60, 0.05)';
-        monitorCtx.fillRect(padding, entryY, width - (padding * 2), height - padding - entryY);
+        const entryY = padding + chartHeight - ((activeTrade.entryPrice - minPv) / priceRange * chartHeight);
+        monitorCtx.fillStyle = 'rgba(46,204,113,0.05)';
+        monitorCtx.fillRect(padding, padding, width - padding * 2, entryY - padding);
+        monitorCtx.fillStyle = 'rgba(231,76,60,0.05)';
+        monitorCtx.fillRect(padding, entryY, width - padding * 2, height - padding - entryY);
     }
-    
-    function drawReferenceLines(width, height, padding, chartHeight, minPrice, priceRange) {
-        // Línea de entrada
-        const entryPrice = activeTrade.entryPrice;
-        const entryY = padding + chartHeight - ((entryPrice - minPrice) / priceRange * chartHeight);
-        
-        monitorCtx.strokeStyle = 'rgba(52, 152, 219, 0.5)';
+
+    function drawReferenceLines(width, height, padding, chartHeight, minPv, priceRange) {
+        const entryY = padding + chartHeight - ((activeTrade.entryPrice - minPv) / priceRange * chartHeight);
+        monitorCtx.strokeStyle = 'rgba(52,152,219,0.5)';
         monitorCtx.lineWidth = 2;
         monitorCtx.setLineDash([5, 3]);
-        
         monitorCtx.beginPath();
         monitorCtx.moveTo(padding, entryY);
         monitorCtx.lineTo(width - padding, entryY);
         monitorCtx.stroke();
-        
-        // Restaurar línea sólida
         monitorCtx.setLineDash([]);
-        
-        // Etiqueta de línea de entrada
-        monitorCtx.fillStyle = 'rgba(52, 152, 219, 0.8)';
+        monitorCtx.fillStyle = 'rgba(52,152,219,0.8)';
         monitorCtx.font = '10px Arial';
         monitorCtx.fillText('Entrada', width - padding - 50, entryY - 5);
     }
-    
-    function drawPriceLine(width, height, padding, chartWidth, chartHeight, minPrice, priceRange) {
+
+    function drawPriceLineWithRealData(width, height, padding, chartWidth, chartHeight, minPv, priceRange) {
         if (priceHistoryData.length < 2) return;
-        
-        // Configurar estilo de línea
-        monitorCtx.strokeStyle = activeTrade.isWinning ? 'rgba(46, 204, 113, 0.8)' : 'rgba(231, 76, 60, 0.8)';
-        monitorCtx.lineWidth = 2;
-        monitorCtx.lineJoin = 'round';
-        monitorCtx.lineCap = 'round';
-        
-        // Filtrar puntos para suavizar la línea (eliminar puntos muy cercanos)
-        const filteredPoints = priceHistoryData; // Usamos todos los puntos (ya están filtrados)
-        
-        // Dibujar línea de precio
+        const color = activeTrade.isWinning ? 'rgba(46,204,113,0.8)' : 'rgba(231,76,60,0.8)';
+        const n     = priceHistoryData.length;
+        monitorCtx.strokeStyle = color;
+        monitorCtx.lineWidth   = 2;
+        monitorCtx.lineJoin    = 'round';
+        monitorCtx.lineCap     = 'round';
         monitorCtx.beginPath();
-        
-        filteredPoints.forEach((point, index) => {
-            const x = padding + (index * chartWidth / (filteredPoints.length - 1));
-            const y = padding + chartHeight - ((point.price - minPrice) / priceRange * chartHeight);
-            
-            if (index === 0) {
-                monitorCtx.moveTo(x, y);
-            } else {
-                monitorCtx.lineTo(x, y);
-            }
-        });
-        
+
+        // Un solo loop: trazar línea Y dibujar puntos
+        for (let i = 0; i < n; i++) {
+            const x = padding + i * chartWidth / (n - 1);
+            const y = padding + chartHeight - ((priceHistoryData[i].price - minPv) / priceRange * chartHeight);
+            i === 0 ? monitorCtx.moveTo(x, y) : monitorCtx.lineTo(x, y);
+        }
         monitorCtx.stroke();
-        
-        // Dibujar puntos SOLO en cambios significativos
-        filteredPoints.forEach((point, index) => {
-            // Solo dibujar puntos en el primero, último y cambios importantes
-            if (index === 0 || index === filteredPoints.length - 1 || 
-                isSignificantChange(filteredPoints, index)) {
-                
-                const x = padding + (index * chartWidth / (filteredPoints.length - 1));
-                const y = padding + chartHeight - ((point.price - minPrice) / priceRange * chartHeight);
-                
-                monitorCtx.fillStyle = activeTrade.isWinning ? 'rgba(46, 204, 113, 1)' : 'rgba(231, 76, 60, 1)';
-                monitorCtx.beginPath();
-                monitorCtx.arc(x, y, 3, 0, Math.PI * 2);
-                monitorCtx.fill();
-                
-                // Borde blanco en los puntos
-                monitorCtx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-                monitorCtx.lineWidth = 1;
-                monitorCtx.beginPath();
-                monitorCtx.arc(x, y, 3, 0, Math.PI * 2);
-                monitorCtx.stroke();
-            }
-        });
+
+        monitorCtx.strokeStyle = 'rgba(255,255,255,0.8)';
+        monitorCtx.lineWidth   = 1;
+        for (let i = 0; i < n; i++) {
+            const x = padding + i * chartWidth / (n - 1);
+            const y = padding + chartHeight - ((priceHistoryData[i].price - minPv) / priceRange * chartHeight);
+            monitorCtx.fillStyle = color;
+            monitorCtx.beginPath();
+            monitorCtx.arc(x, y, 3, 0, Math.PI * 2);
+            monitorCtx.fill();
+            monitorCtx.stroke();
+        }
     }
-    
-    function drawEntryPoint(width, height, padding, chartWidth, chartHeight, entryPrice, minPrice, priceRange) {
+
+    function drawEntryPoint(width, height, padding, chartWidth, chartHeight, entryPrice, minPv, priceRange) {
         const x = padding;
-        const y = padding + chartHeight - ((entryPrice - minPrice) / priceRange * chartHeight);
-        
-        // Dibujar punto de entrada
-        monitorCtx.fillStyle = 'rgba(52, 152, 219, 1)';
+        const y = padding + chartHeight - ((entryPrice - minPv) / priceRange * chartHeight);
+        monitorCtx.fillStyle   = 'rgba(52,152,219,1)';
+        monitorCtx.strokeStyle = 'rgba(255,255,255,1)';
+        monitorCtx.lineWidth = 2;
         monitorCtx.beginPath();
         monitorCtx.arc(x, y, 6, 0, Math.PI * 2);
         monitorCtx.fill();
-        
-        // Borde blanco
-        monitorCtx.strokeStyle = 'rgba(255, 255, 255, 1)';
-        monitorCtx.lineWidth = 2;
-        monitorCtx.beginPath();
-        monitorCtx.arc(x, y, 6, 0, Math.PI * 2);
         monitorCtx.stroke();
-        
-        // Etiqueta
-        monitorCtx.fillStyle = 'rgba(52, 152, 219, 1)';
+        monitorCtx.fillStyle = 'rgba(52,152,219,1)';
         monitorCtx.font = 'bold 12px Arial';
         monitorCtx.fillText('E', x - 3, y + 4);
     }
-    
-    function drawCurrentPoint(width, height, padding, chartWidth, chartHeight, currentPrice, minPrice, priceRange) {
-        const x = width - padding;
-        const y = padding + chartHeight - ((currentPrice - minPrice) / priceRange * chartHeight);
-        
-        // Dibujar punto actual
-        monitorCtx.fillStyle = activeTrade.isWinning ? 'rgba(46, 204, 113, 1)' : 'rgba(231, 76, 60, 1)';
-        monitorCtx.beginPath();
-        monitorCtx.arc(x, y, 8, 0, Math.PI * 2);
-        monitorCtx.fill();
-        
-        // Anillo exterior
-        monitorCtx.strokeStyle = activeTrade.isWinning ? 'rgba(46, 204, 113, 0.8)' : 'rgba(231, 76, 60, 0.8)';
-        monitorCtx.lineWidth = 3;
-        monitorCtx.beginPath();
-        monitorCtx.arc(x, y, 10, 0, Math.PI * 2);
-        monitorCtx.stroke();
-        
-        // Borde blanco interior
-        monitorCtx.strokeStyle = 'rgba(255, 255, 255, 1)';
+
+    function drawCurrentPoint(width, height, padding, chartWidth, chartHeight, currPrice, minPv, priceRange) {
+        const x     = width - padding;
+        const y     = padding + chartHeight - ((currPrice - minPv) / priceRange * chartHeight);
+        const color = activeTrade.isWinning ? 'rgba(46,204,113,1)' : 'rgba(231,76,60,1)';
+        monitorCtx.fillStyle   = color;
+        monitorCtx.strokeStyle = 'rgba(255,255,255,1)';
         monitorCtx.lineWidth = 2;
         monitorCtx.beginPath();
         monitorCtx.arc(x, y, 8, 0, Math.PI * 2);
+        monitorCtx.fill();
         monitorCtx.stroke();
-        
-        // Etiqueta
-        monitorCtx.fillStyle = 'rgba(255, 255, 255, 1)';
+        monitorCtx.fillStyle = 'rgba(255,255,255,1)';
         monitorCtx.font = 'bold 12px Arial';
         monitorCtx.fillText('A', x - 3, y + 4);
-        
-        // Línea conectora al punto
-        monitorCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        // línea vertical punteada
+        monitorCtx.strokeStyle = 'rgba(255,255,255,0.3)';
         monitorCtx.lineWidth = 1;
         monitorCtx.setLineDash([2, 2]);
         monitorCtx.beginPath();
@@ -569,1373 +958,1374 @@
         monitorCtx.lineTo(x, height - padding);
         monitorCtx.stroke();
         monitorCtx.setLineDash([]);
-        
-        // Etiqueta de precio actual en el eje Y
-        monitorCtx.fillStyle = activeTrade.isWinning ? 'rgba(46, 204, 113, 1)' : 'rgba(231, 76, 60, 1)';
+        // precio
+        monitorCtx.fillStyle = color;
         monitorCtx.font = 'bold 11px Arial';
-        monitorCtx.fillText(currentPrice.toFixed(4), x + 5, y);
+        const xd = obtenerDecimalesPorInstrumento(currentAsset);
+        monitorCtx.fillText(currPrice.toFixed(xd), x + 5, y);
     }
-    
+
     function drawChartLegend(width, height) {
-        const padding = 10;
-        
-        // Fondo de la leyenda
-        monitorCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        monitorCtx.fillRect(padding, padding, 150, 60);
-        
-        // Borde de la leyenda
-        monitorCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        const pad = 10;
+        monitorCtx.fillStyle = 'rgba(0,0,0,0.7)';
+        monitorCtx.fillRect(pad, pad, 150, 60);
+        monitorCtx.strokeStyle = 'rgba(255,255,255,0.3)';
         monitorCtx.lineWidth = 1;
-        monitorCtx.strokeRect(padding, padding, 150, 60);
-        
-        // Título
-        monitorCtx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        monitorCtx.strokeRect(pad, pad, 150, 60);
+        monitorCtx.fillStyle = 'rgba(255,255,255,0.9)';
         monitorCtx.font = 'bold 12px Arial';
-        monitorCtx.fillText('LEYENDA', padding + 50, padding + 15);
-        
-        // Entrada
-        monitorCtx.fillStyle = 'rgba(52, 152, 219, 1)';
+        monitorCtx.fillText('LEYENDA', pad + 50, pad + 15);
+        monitorCtx.fillStyle = 'rgba(52,152,219,1)';
         monitorCtx.beginPath();
-        monitorCtx.arc(padding + 10, padding + 30, 4, 0, Math.PI * 2);
+        monitorCtx.arc(pad + 10, pad + 30, 4, 0, Math.PI * 2);
         monitorCtx.fill();
-        monitorCtx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        monitorCtx.fillStyle = 'rgba(255,255,255,0.8)';
         monitorCtx.font = '10px Arial';
-        monitorCtx.fillText('Entrada', padding + 20, padding + 34);
-        
-        // Actual
-        monitorCtx.fillStyle = activeTrade.isWinning ? 'rgba(46, 204, 113, 1)' : 'rgba(231, 76, 60, 1)';
+        monitorCtx.fillText('Entrada', pad + 20, pad + 34);
+        monitorCtx.fillStyle = activeTrade.isWinning ? 'rgba(46,204,113,1)' : 'rgba(231,76,60,1)';
         monitorCtx.beginPath();
-        monitorCtx.arc(padding + 10, padding + 45, 4, 0, Math.PI * 2);
+        monitorCtx.arc(pad + 10, pad + 45, 4, 0, Math.PI * 2);
         monitorCtx.fill();
-        monitorCtx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-        monitorCtx.font = '10px Arial';
-        monitorCtx.fillText('Actual', padding + 20, padding + 49);
+        monitorCtx.fillStyle = 'rgba(255,255,255,0.8)';
+        monitorCtx.fillText('Actual', pad + 20, pad + 49);
     }
-    
-    // FUNCIÓN PARA DETECTAR CAMBIOS SIGNIFICATIVOS
-    function isSignificantChange(points, index) {
-        if (index === 0 || index === points.length - 1) return true;
-        
-        const prevPrice = points[index-1].price;
-        const currPrice = points[index].price;
-        const nextPrice = points[index+1].price;
-        
-        // Cambio significativo si hay una reversión o cambio grande
-        const prevChange = Math.abs(currPrice - prevPrice);
-        const nextChange = Math.abs(nextPrice - currPrice);
-        
-        // Umbral basado en el instrumento
-        const assetValue = document.getElementById("asset-selector").value;
-        const xd = obtenerDecimalesPorInstrumento(assetValue);
-        const threshold = xd >= 4 ? 0.0005 : 0.005; // Umbral diferente para forex vs índices
-        
-        return prevChange > threshold || nextChange > threshold;
-    }
-    
-    // ====================== SISTEMA DE AUDIO PARA ALERTAS SONORAS ======================
-    
+
+    // ====================== AUDIO ======================
     function initializeAudioSystem() {
         try {
-            // Crear contexto de audio
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
             gainNode = audioContext.createGain();
             gainNode.connect(audioContext.destination);
-            gainNode.gain.value = 0.5; // Volumen al 50%
-            console.log("🔊 Sistema de audio inicializado");
-        } catch (e) {
-            console.warn("⚠️ No se pudo inicializar el sistema de audio:", e.message);
+            gainNode.gain.value = 0.5;
+        } catch(e) {
             soundAlertsEnabled = false;
             updateSoundSwitch();
         }
     }
-    
+
     function playAlertSound(type) {
         if (!soundAlertsEnabled || !audioContext) return;
-        
         try {
-            const oscillator = audioContext.createOscillator();
+            const osc      = audioContext.createOscillator();
             const envelope = audioContext.createGain();
-            
-            oscillator.connect(envelope);
+            osc.connect(envelope);
             envelope.connect(gainNode);
-            
-            // Configurar frecuencia según tipo de alerta
-            switch(type) {
-                case 'win':
-                    oscillator.frequency.value = 880; // LA5
-                    break;
-                case 'loss':
-                    oscillator.frequency.value = 440; // LA4
-                    break;
-                case 'warning':
-                    oscillator.frequency.value = 660; // MI5
-                    break;
-                default:
-                    oscillator.frequency.value = 523.25; // DO5
-            }
-            
-            oscillator.type = 'sine';
-            
-            // Configurar envolvente ADSR
+            osc.frequency.value = type === 'win' ? 880 : type === 'loss' ? 440 : 660;
+            osc.type = 'sine';
             envelope.gain.setValueAtTime(0, audioContext.currentTime);
             envelope.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.1);
             envelope.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-            
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.5);
-            
-        } catch (e) {
-            console.warn("⚠️ Error reproduciendo sonido:", e.message);
-        }
+            osc.start(audioContext.currentTime);
+            osc.stop(audioContext.currentTime + 0.5);
+        } catch(e) {}
     }
-    
+
     function testSound(type) {
         playAlertSound(type);
-        showNotification(
+        showInternalNotification(
             type === 'win' ? 'Test Ganancia' : 'Test Pérdida',
             type === 'win' ? 'Sonido de alerta de ganancia' : 'Sonido de alerta de pérdida',
             type === 'win' ? 'success' : 'error'
         );
     }
-    
-    // ====================== SISTEMA DE NOTIFICACIONES PUSH ======================
-    
+
+    // ====================== NOTIFICACIONES ======================
     function requestNotificationPermission() {
-        if (!('Notification' in window)) {
-            console.log("⚠️ Este navegador no soporta notificaciones push");
-            pushAlertsEnabled = false;
-            updatePushSwitch();
-            return;
-        }
-        
-        if (Notification.permission === 'granted') {
-            console.log("✅ Permiso para notificaciones ya concedido");
-            return;
-        }
-        
+        if (!('Notification' in window)) { pushAlertsEnabled = false; updatePushSwitch(); return; }
+        if (Notification.permission === 'granted') return;
         if (Notification.permission !== 'denied') {
-            // Mostrar solicitud de permiso después de un delay
             setTimeout(() => {
-                Notification.requestPermission().then(permission => {
-                    if (permission === 'granted') {
-                        console.log("✅ Permiso para notificaciones concedido");
-                    } else {
-                        console.log("❌ Permiso para notificaciones denegado");
-                        pushAlertsEnabled = false;
-                        updatePushSwitch();
-                        saveAlertSettings();
-                    }
+                Notification.requestPermission().then(p => {
+                    if (p !== 'granted') { pushAlertsEnabled = false; updatePushSwitch(); saveAlertSettings(); }
                 });
             }, 3000);
         }
     }
-    
+
     function showNotification(title, message, type = 'info') {
-        // 1. Notificación del navegador
         if (pushAlertsEnabled && Notification.permission === 'granted') {
-            const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : '⚠️';
-            const notification = new Notification(`Trading Manual - ${title}`, {
-                body: `${icon} ${message}`,
+            const n = new Notification('Trading Manual - ' + title, {
+                body: (type === 'success' ? '✅' : type === 'error' ? '❌' : '⚠️') + ' ' + message,
                 icon: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
                 tag: 'trading-alert'
             });
-            
-            notification.onclick = function() {
-                window.focus();
-                this.close();
-            };
-            
-            // Cerrar automáticamente después de 5 segundos
-            setTimeout(() => notification.close(), 5000);
+            n.onclick = function() { window.focus(); this.close(); };
+            setTimeout(() => n.close(), 5000);
         }
-        
-        // 2. Notificación interna en la aplicación
         showInternalNotification(title, message, type);
     }
-    
+
     function showInternalNotification(title, message, type = 'info') {
-        const notificationContainer = document.getElementById('notification-container');
-        if (!notificationContainer) return;
-        
-        const notificationId = 'notification-' + Date.now();
-        const iconClass = type === 'success' ? 'fa-check-circle' : 
-                         type === 'error' ? 'fa-times-circle' : 
-                         type === 'warning' ? 'fa-exclamation-triangle' : 'fa-info-circle';
-        
-        const notificationHTML = `
-            <div class="notification ${type} show" id="${notificationId}">
-                <div class="notification-icon">
-                    <i class="fas ${iconClass}"></i>
-                </div>
-                <div class="notification-content">
-                    <div class="notification-title">${title}</div>
-                    <div class="notification-message">${message}</div>
-                </div>
-                <button class="notification-close" onclick="closeNotification('${notificationId}')">
-                    <i class="fas fa-times"></i>
-                </button>
+        const container = document.getElementById('notification-container');
+        if (!container) return;
+
+        const id = 'notif-' + Date.now();
+        const iconClass = type === 'success' ? 'fa-check-circle' :
+                          type === 'error'   ? 'fa-times-circle' :
+                          type === 'warning' ? 'fa-exclamation-triangle' : 'fa-info-circle';
+
+        const el = document.createElement('div');
+        el.className = `notification ${type}`;
+        el.id = id;
+        el.innerHTML = `
+            <div class="notification-icon"><i class="fas ${iconClass}"></i></div>
+            <div class="notification-content">
+                <div class="notification-title">${title}</div>
+                <div class="notification-message">${message}</div>
             </div>
-        `;
-        
-        notificationContainer.insertAdjacentHTML('afterbegin', notificationHTML);
-        
-        // Auto-cerrar después de 5 segundos
-        setTimeout(() => {
-            closeNotification(notificationId);
-        }, 5000);
-        
-        // Limitar a 5 notificaciones simultáneas
-        const notifications = notificationContainer.querySelectorAll('.notification');
-        if (notifications.length > 5) {
-            notifications[notifications.length - 1].remove();
-        }
+            <button class="notification-close" onclick="closeNotification('${id}')">
+                <i class="fas fa-times"></i>
+            </button>`;
+
+        container.insertBefore(el, container.firstChild);
+
+        // Forzar reflow para disparar la transición CSS
+        el.offsetHeight; // eslint-disable-line no-unused-expressions
+        el.classList.add('show');
+
+        setTimeout(() => closeNotification(id), 5000);
+
+        // Límite de 5 notificaciones visibles
+        const all = container.querySelectorAll('.notification');
+        if (all.length > 5) all[all.length - 1].remove();
     }
-    
+
     function closeNotification(id) {
-        const notification = document.getElementById(id);
-        if (notification) {
-            notification.classList.remove('show');
-            notification.classList.add('hide');
-            setTimeout(() => notification.remove(), 300);
-        }
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.remove('show');
+        el.classList.add('hide');
+        setTimeout(() => el.remove(), 300);
     }
-    
-    // ====================== GESTIÓN DE CONFIGURACIÓN DE ALERTAS ======================
-    
+
+    // ====================== ALERTAS CONFIG ======================
     function toggleSoundAlerts() {
         soundAlertsEnabled = !soundAlertsEnabled;
         updateSoundSwitch();
         saveAlertSettings();
-        
-        const message = soundAlertsEnabled 
-            ? 'Alertas sonoras activadas' 
-            : 'Alertas sonoras desactivadas';
-        showInternalNotification('Configuración', message, soundAlertsEnabled ? 'success' : 'warning');
+        showInternalNotification('Configuración',
+            soundAlertsEnabled ? 'Alertas sonoras activadas' : 'Alertas sonoras desactivadas',
+            soundAlertsEnabled ? 'success' : 'warning');
     }
-    
+
     function togglePushAlerts() {
         if (!('Notification' in window)) {
-            showInternalNotification('Error', 'Este navegador no soporta notificaciones push', 'error');
-            return;
+            showInternalNotification('Error', 'Este navegador no soporta notificaciones push', 'error'); return;
         }
-        
         if (Notification.permission === 'denied') {
-            showInternalNotification('Error', 'Permiso para notificaciones denegado. Por favor, habilítalo manualmente en la configuración del navegador.', 'error');
-            return;
+            showInternalNotification('Error', 'Permiso denegado. Habilítalo en la configuración del navegador.', 'error'); return;
         }
-        
         if (Notification.permission !== 'granted') {
-            Notification.requestPermission().then(permission => {
-                if (permission === 'granted') {
-                    pushAlertsEnabled = true;
-                    updatePushSwitch();
-                    saveAlertSettings();
-                    showInternalNotification('Configuración', 'Notificaciones push activadas', 'success');
-                }
+            Notification.requestPermission().then(p => {
+                if (p === 'granted') { pushAlertsEnabled = true; updatePushSwitch(); saveAlertSettings();
+                    showInternalNotification('Configuración', 'Notificaciones push activadas', 'success'); }
             });
         } else {
             pushAlertsEnabled = !pushAlertsEnabled;
             updatePushSwitch();
             saveAlertSettings();
-            
-            const message = pushAlertsEnabled 
-                ? 'Notificaciones push activadas' 
-                : 'Notificaciones push desactivadas';
-            showInternalNotification('Configuración', message, pushAlertsEnabled ? 'success' : 'warning');
+            showInternalNotification('Configuración',
+                pushAlertsEnabled ? 'Notificaciones push activadas' : 'Notificaciones push desactivadas',
+                pushAlertsEnabled ? 'success' : 'warning');
         }
     }
-    
+
     function updateSoundSwitch() {
-        if (soundAlertsEnabled) {
-            soundIndicator.classList.add('active');
-            soundAlertSwitch.classList.add('active');
-        } else {
-            soundIndicator.classList.remove('active');
-            soundAlertSwitch.classList.remove('active');
-        }
+        if (!soundAlertSwitch || !soundIndicator) return;
+        soundAlertSwitch.classList.toggle('active', soundAlertsEnabled);
+        soundIndicator.classList.toggle('active', soundAlertsEnabled);
     }
-    
+
     function updatePushSwitch() {
-        if (pushAlertsEnabled && Notification.permission === 'granted') {
-            pushIndicator.classList.add('active');
-            pushAlertSwitch.classList.add('active');
-        } else {
-            pushIndicator.classList.remove('active');
-            pushAlertSwitch.classList.remove('active');
-        }
+        const on = pushAlertsEnabled && Notification.permission === 'granted';
+        if (!pushAlertSwitch || !pushIndicator) return;
+        pushAlertSwitch.classList.toggle('active', on);
+        pushIndicator.classList.toggle('active', on);
     }
-    
+
     function saveAlertSettings() {
-        const settings = {
-            soundAlerts: soundAlertsEnabled,
-            pushAlerts: pushAlertsEnabled
-        };
-        
-        try {
-            localStorage.setItem('alertSettings', JSON.stringify(settings));
-        } catch (e) {
-            console.warn("⚠️ No se pudo guardar configuración:", e);
-        }
+        try { localStorage.setItem('alertSettings', JSON.stringify({ soundAlerts: soundAlertsEnabled, pushAlerts: pushAlertsEnabled })); } catch(e) {}
     }
-    
+
     function loadAlertSettings() {
         try {
             const saved = localStorage.getItem('alertSettings');
             if (saved) {
-                const settings = JSON.parse(saved);
-                soundAlertsEnabled = settings.soundAlerts !== undefined ? settings.soundAlerts : true;
-                pushAlertsEnabled = settings.pushAlerts !== undefined ? settings.pushAlerts : true;
-                
+                const s = JSON.parse(saved);
+                soundAlertsEnabled = s.soundAlerts !== undefined ? s.soundAlerts : true;
+                pushAlertsEnabled  = s.pushAlerts  !== undefined ? s.pushAlerts  : true;
                 updateSoundSwitch();
                 updatePushSwitch();
-                
-                console.log("⚙️ Configuración de alertas cargada");
             }
-        } catch (e) {
-            console.warn("⚠️ Error cargando configuración:", e);
-        }
+        } catch(e) {}
     }
-    
-    // ====================== NUEVAS VARIABLES PARA DETECCIÓN DE MÁXIMOS/MÍNIMOS ======================
-    
+
+    // ====================== DETECCIÓN DE NIVEL DE PRECIO ======================
     function initializeLevelHistory() {
-        // Inicializar con 20 niveles "mid" (medio)
-        for (let i = 0; i < 20; i++) {
-            levelHistory.push('mid');
-        }
+        levelHistory = Array(20).fill('mid');
+        updateLevelHistoryDisplay();
     }
-    
-    // FUNCIÓN PRINCIPAL: Determina si el precio actual es máximo, mínimo o medio
-   function updatePriceLevel(currentPrice) {
-        const numericPrice = parseFloat(currentPrice);
-        
-        // Agregar precio al historial
-        priceHistory.push(numericPrice);
-        
-        // Mantener solo los últimos PRICE_HISTORY_LENGTH precios
-        if (priceHistory.length > PRICE_HISTORY_LENGTH) {
-            priceHistory.shift();
-        }
-        
-        // Si no hay suficientes datos, retornar 'mid'
-        if (priceHistory.length < 3) {
-            currentPriceLevel = 'mid';
-            return currentPriceLevel;
-        }
-        
-        // Encontrar máximo y mínimo en el historial
-        maxPrice = Math.max(...priceHistory);
-        minPrice = Math.min(...priceHistory);
-        
-        // Determinar nivel actual
-        if (numericPrice === maxPrice && numericPrice !== minPrice) {
-            currentPriceLevel = 'max';
-        } else if (numericPrice === minPrice && numericPrice !== maxPrice) {
-            currentPriceLevel = 'min';
-        } else {
-            currentPriceLevel = 'mid';
-            
-            // Contar dígito verde (cuando el precio está en nivel medio)
-            greenDigitsCount++;
-        }
-        
-        // Actualizar historial de niveles
+
+    function updatePriceLevel(currentPrice) {
+        const num = parseFloat(currentPrice);
+        priceHistory.push(num);
+        if (priceHistory.length > PRICE_HISTORY_LENGTH) priceHistory.shift();
+        if (priceHistory.length < 3) { currentPriceLevel = 'mid'; return 'mid'; }
+
+        maxPrice = priceHistory.reduce((m, v) => v > m ? v : m, -Infinity);
+        minPrice = priceHistory.reduce((m, v) => v < m ? v : m, Infinity);
+
+        if (num === maxPrice && num !== minPrice) currentPriceLevel = 'max';
+        else if (num === minPrice && num !== maxPrice) currentPriceLevel = 'min';
+        else { currentPriceLevel = 'mid'; greenDigitsCount++; }
+
         levelHistory.push(currentPriceLevel);
-        if (levelHistory.length > 20) {
-            levelHistory.shift();
-        }
-        
-        // Actualizar display
+        if (levelHistory.length > 20) levelHistory.shift();
+
         updateLevelDisplay();
-        
+        updateLevelHistoryDisplay();   // ya tiene throttle propio (300ms)
+
+        // updateLevelInfoPanel con throttle para no actualizar el panel en cada tick
+        if (!_levelInfoPending) {
+            _levelInfoPending = true;
+            setTimeout(() => { updateLevelInfoPanel(); _levelInfoPending = false; }, 500);
+        }
+
         return currentPriceLevel;
     }
-    
+
     function updateLevelDisplay() {
         if (!priceLevelIndicator) return;
-        
-        // Actualizar indicador de nivel
-        switch(currentPriceLevel) {
-            case 'max':
-                priceLevelIndicator.textContent = 'MÁXIMO';
-                priceLevelIndicator.className = 'price-level-indicator level-max';
-                break;
-            case 'min':
-                priceLevelIndicator.textContent = 'MÍNIMO';
-                priceLevelIndicator.className = 'price-level-indicator level-min';
-                break;
-            case 'mid':
-                priceLevelIndicator.textContent = 'MEDIO';
-                priceLevelIndicator.className = 'price-level-indicator level-mid';
-                break;
-        }
-        
-        // Actualizar color del dígito actual según nivel
-        if (currentDigitEl) {
-            currentDigitEl.classList.remove('digit-green');
-            
-            if (currentPriceLevel === 'mid') {
-                // Añadir clase especial para dígito verde (nivel medio)
-                currentDigitEl.classList.add('digit-green');
-            }
-        }
-        
-        // Actualizar contador de dígitos verdes
-        if (greenDigitCountBadge) {
-            greenDigitCountBadge.textContent = greenDigitsCount;
-        }
+        const labels = { max: 'MÁXIMO', min: 'MÍNIMO', mid: 'MEDIO' };
+        const classes = { max: 'level-max', min: 'level-min', mid: 'level-mid' };
+        priceLevelIndicator.textContent = labels[currentPriceLevel];
+        priceLevelIndicator.className   = 'price-level-indicator ' + classes[currentPriceLevel];
     }
-    
+
+    let _levelHistoryPending = false;
+    function updateLevelHistoryDisplay() {
+        if (!levelHistoryEl || _levelHistoryPending) return;
+        _levelHistoryPending = true;
+        setTimeout(() => {
+            const frag = document.createDocumentFragment();
+            for (let i = 0; i < levelHistory.length; i++) {
+                const lvl  = levelHistory[i];
+                const span = document.createElement('span');
+                span.className   = 'level-history-badge history-' + lvl;
+                span.textContent = lvl === 'max' ? 'M' : lvl === 'min' ? 'm' : '·';
+                frag.appendChild(span);
+            }
+            levelHistoryEl.innerHTML = '';
+            levelHistoryEl.appendChild(frag);
+            _levelHistoryPending = false;
+        }, 300);
+    }
+
+    function updateLevelInfoPanel() {
+        if (!currentLevelDisplay) return;
+        const labels = { max: 'MÁXIMO', min: 'MÍNIMO', mid: 'MEDIO' };
+        const colors = { max: '#3498db', min: '#e74c3c', mid: '#2ecc71' };
+        currentLevelDisplay.textContent = labels[currentPriceLevel];
+        currentLevelDisplay.style.color = colors[currentPriceLevel];
+
+        if (priceHistory.length > 0) {
+            const xd = obtenerDecimalesPorInstrumento(currentAsset);
+            maxPriceDisplay.textContent = maxPrice.toFixed(xd);
+            minPriceDisplay.textContent = minPrice.toFixed(xd);
+        }
+
+        greenDigitsCountEl.textContent = greenDigitsCount;
+        if (lastMaxDigit !== null) { lastMaxDigitEl.textContent = lastMaxDigit; lastMaxDigitEl.style.color = '#3498db'; }
+        if (lastMinDigit !== null) { lastMinDigitEl.textContent = lastMinDigit; lastMinDigitEl.style.color = '#e74c3c'; }
+    }
+
     function updateDigitBadgesWithLevel(digit, level) {
-        // Esta función actualiza los badges de dígitos con indicadores de nivel
-        const badges = digitsContainer.querySelectorAll('.digit-badge');
-        const lastBadge = badges[0]; // El último dígito agregado es el primero en la lista
-        
-        if (lastBadge) {
-            // Remover clases anteriores
-            lastBadge.classList.remove('max-digit', 'min-digit', 'mid-digit');
-            
-            // Añadir clase según nivel
-            switch(level) {
-                case 'max':
-                    lastBadge.classList.add('max-digit');
-                    lastMaxDigit = digit; // Guardar último dígito máximo
-                    break;
-                case 'min':
-                    lastBadge.classList.add('min-digit');
-                    lastMinDigit = digit; // Guardar último dígito mínimo
-                    break;
-                case 'mid':
-                    lastBadge.classList.add('mid-digit');
-                    break;
-            }
-        }
+        const firstBadge = digitsContainer ? digitsContainer.firstElementChild : null;
+        if (!firstBadge) return;
+        firstBadge.classList.remove('max-digit', 'min-digit', 'mid-digit');
+        firstBadge.classList.add(level + '-digit');
+        if (level === 'max') lastMaxDigit = digit;
+        if (level === 'min') lastMinDigit = digit;
     }
-    
-    // ====================== FUNCIONES DE INTERFAZ ======================
+
+    // ====================== INTERFAZ ======================
     function closeAllModals() {
         document.getElementById('overlay').style.display = 'none';
         document.getElementById('result-panel').style.display = 'none';
     }
-    
+
     function closeResultPanel() {
         document.getElementById('result-panel').style.display = 'none';
         document.getElementById('overlay').style.display = 'none';
     }
-    
+
     function adjustStake(amount) {
-        tradingStake += amount;
-        if (tradingStake < 0.1) tradingStake = 0.1;
-        if (tradingStake > 10000) tradingStake = 10000;
-        
-        const stakeInput = document.getElementById('trading-stake');
-        if (stakeInput) {
-            stakeInput.value = tradingStake.toFixed(2);
-        }
-        
+        tradingStake = Math.min(10000, Math.max(0.1, tradingStake + amount));
+        const inp = document.getElementById('trading-stake');
+        if (inp) inp.value = tradingStake.toFixed(2);
         updateStakeDisplay();
     }
-    
+
     function updateStakeDisplay() {
         if (callStakeEl) callStakeEl.textContent = `$${tradingStake.toFixed(2)}`;
-        if (putStakeEl) putStakeEl.textContent = `$${tradingStake.toFixed(2)}`;
+        if (putStakeEl)  putStakeEl.textContent  = `$${tradingStake.toFixed(2)}`;
     }
-    
-    // ====================== CANVASJS CHART ======================
+
+    // ====================== CANVASJS ======================
     function initCanvasJSChart() {
-        digitsChart = new CanvasJS.Chart("chartContainer", {
+        digitsChart = new CanvasJS.Chart('chartContainer', {
             animationEnabled: false,
-            theme: "light2",
-            title: {
-                titleFontSize: 0,
-                text: ""
-            },
-            toolTip: {
-                enabled: true,
-                animationEnabled: true,
-                borderColor: "#ccc",
-                borderThickness: 1,
-                fontColor: "#000",
-                content: "{y}"
-            },
-            axisX: {
-                includeZero: false,
-                titleFontSize: 0,
-                labelFontSize: 0,
-                gridThickness: 0,
-                tickLength: 0,
-                lineThickness: 1
-            },
+            theme: 'light2',
+            title: { text: '' },
+            toolTip: { enabled: true, animationEnabled: true, borderColor: '#ccc', fontColor: '#000', content: '{y}' },
+            axisX: { includeZero: false, labelFontSize: 0, gridThickness: 0, tickLength: 0, lineThickness: 1 },
             axisY: {
-                stripLines: [{
-                    value: 0,
-                    thickness: 1,
-                    color: "#ccc",
-                    label: "",
-                    labelFontColor: "#ccc",
-                    labelPlacement: "inside"
-                }],
-                includeZero: false,
-                titleFontSize: 0,
-                labelFontSize: 0,
-                gridThickness: 0,
-                tickLength: 0,
-                lineThickness: 1,
-                minimum: -10,
-                maximum: 10
+                stripLines: [{ value: 0, thickness: 1, color: '#ccc' }],
+                includeZero: false, labelFontSize: 0, gridThickness: 0, tickLength: 0, lineThickness: 1,
+                minimum: -10, maximum: 10
             },
-            data: [{
-                type: "line",
-                lineColor: "#ccc",
-                lineThickness: 2,
-                markerType: "none",
-                markerSize: 6,
-                markerBorderThickness: 0,
-                dataPoints: digitsDataPoints
-            }]
+            data: [{ type: 'line', lineColor: '#ccc', lineThickness: 2, markerType: 'none', dataPoints: digitsDataPoints }]
         });
-        
         digitsChart.render();
     }
-    
+
     function initPriceChart() {
-        priceChart = new CanvasJS.Chart("priceChartContainer", {
+        priceChart = new CanvasJS.Chart('priceChartContainer', {
             animationEnabled: false,
-            theme: "light2",
-            title: {
-                titleFontSize: 0,
-                text: ""
-            },
-            toolTip: {
-                enabled: true,
-                animationEnabled: true,
-                borderColor: "#ccc",
-                borderThickness: 1,
-                fontColor: "#000",
-                content: "{y}"
-            },
-            axisX: {
-                includeZero: false,
-                titleFontSize: 0,
-                labelFontSize: 0,
-                gridThickness: 0,
-                tickLength: 0,
-                lineThickness: 1
-            },
-            axisY: {
-                includeZero: false,
-                titleFontSize: 0,
-                labelFontSize: 0,
-                gridThickness: 0,
-                tickLength: 0,
-                lineThickness: 1
-            },
-            data: [{
-                type: "line",
-                lineColor: "#ccc",
-                lineThickness: 2,
-                markerType: "none",
-                markerSize: 6,
-                markerBorderThickness: 0,
-                dataPoints: priceDataPoints
-            }]
+            theme: 'light2',
+            title: { text: '' },
+            toolTip: { enabled: true, animationEnabled: true, borderColor: '#ccc', fontColor: '#000', content: '{y}' },
+            axisX: { includeZero: false, labelFontSize: 0, gridThickness: 0, tickLength: 0, lineThickness: 1 },
+            axisY: { includeZero: false, labelFontSize: 0, gridThickness: 0, tickLength: 0, lineThickness: 1 },
+            data: [{ type: 'line', lineColor: '#ccc', lineThickness: 2, markerType: 'none', dataPoints: priceDataPoints }]
         });
-        
         priceChart.render();
     }
-    
-    function updateCanvasJSChart(digit, wentUp, processedDigit = null) {
+
+    // Throttle: renderizar gráficos máx 1 vez cada 200ms
+    let _chartRenderPending = false;
+    let _priceRenderPending = false;
+
+    function updateCanvasJSChart(digit, wentUp, processedDigit) {
         if (!digitsChart) return;
-        
-        const displayDigit = processedDigit !== null ? processedDigit : digit;
-        const yValue = wentUp ? parseFloat(displayDigit) : -parseFloat(displayDigit);
-        
-        let markerColor = "black";
-        let mSize = 3;
-        let mType = "circle";
-        
-        const allYValues = [...digitsDataPoints.map(p => p.y), yValue];
-        const maxY = Math.max(...allYValues);
-        const minY = Math.min(...allYValues);
-        
-        if (yValue === maxY) {
-            markerColor = "#29abe2";
-            mSize = 6;
-        } else if (yValue === minY) {
-            markerColor = "#c03";
-            mSize = 6;
-        } else if (digitsDataPoints.length === 0) {
-            markerColor = "#32cd32";
-            mSize = 6;
-        } else {
-            markerColor = "black";
-            mSize = 3;
+        const yValue = wentUp ? parseFloat(processedDigit) : -parseFloat(processedDigit);
+
+        let maxY = yValue, minY = yValue;
+        for (let i = 0; i < digitsDataPoints.length; i++) {
+            if (digitsDataPoints[i].y > maxY) maxY = digitsDataPoints[i].y;
+            if (digitsDataPoints[i].y < minY) minY = digitsDataPoints[i].y;
         }
-        
-        const indexLabelFontColor = wentUp ? "#29abe2" : "#c03";
-        
-        const newPoint = {
-            x: currentPosition,
-            y: yValue,
-            indexLabel: displayDigit.toString(),
-            indexLabelFontWeight: "bold",
-            indexLabelFontSize: 16,
-            indexLabelFontColor: indexLabelFontColor,
-            markerBorderColor: "#ccc",
-            markerSize: mSize,
-            markerType: mType,
-            markerColor: markerColor,
-            markerBorderColor: "#ccc"
-        };
-        
-        digitsDataPoints.push(newPoint);
-        currentPosition++;
-        
+        const isExtreme   = yValue === maxY || yValue === minY || digitsDataPoints.length === 0;
+        const markerColor = yValue === maxY ? '#29abe2' : yValue === minY ? '#c03' : 'black';
+
+        digitsDataPoints.push({
+            x: currentPosition++, y: yValue,
+            indexLabel: Math.abs(processedDigit).toString(),
+            indexLabelFontWeight: 'bold', indexLabelFontSize: 13,
+            indexLabelFontColor: wentUp ? '#29abe2' : '#c03',
+            markerSize: isExtreme ? 6 : 3, markerType: 'circle',
+            markerColor, markerBorderColor: '#ccc'
+        });
+
         if (digitsDataPoints.length > 20) {
             digitsDataPoints.shift();
-            digitsDataPoints.forEach((point, index) => {
-                point.x = index + 1;
-            });
-            currentPosition = digitsDataPoints.length + 1;
+            const base = currentPosition - 20;
+            for (let i = 0; i < digitsDataPoints.length; i++) digitsDataPoints[i].x = base + i;
         }
-        
-        digitsChart.options.data[0].dataPoints = digitsDataPoints;
-        digitsChart.render();
+
+        if (!_chartRenderPending) {
+            _chartRenderPending = true;
+            setTimeout(() => { digitsChart.options.data[0].dataPoints = digitsDataPoints; digitsChart.render(); _chartRenderPending = false; }, 200);
+        }
     }
-    
+
     function updatePriceChart(price, digit, wentUp) {
         if (!priceChart) return;
-        
-        const assetValue = document.getElementById("asset-selector").value;
-        const xd = obtenerDecimalesPorInstrumento(assetValue);
-        const formattedPrice = parseFloat(price).toFixed(xd);
-        const numericPrice = parseFloat(formattedPrice);
-        
-        // Agregar punto al gráfico de precios
+        const xd  = obtenerDecimalesPorInstrumento(currentAsset);
+        const num = parseFloat(parseFloat(price).toFixed(xd));
+
         priceDataPoints.push({
-            x: priceChartPosition,
-            y: numericPrice,
+            x: priceChartPosition++, y: num,
             indexLabel: digit.toString(),
-            indexLabelFontWeight: "bold",
-            indexLabelFontSize: 16,
-            indexLabelFontColor: wentUp ? "#29abe2" : "#c03",
-            markerBorderColor: "#ccc",
-            markerSize: 3,
-            markerType: "circle",
-            markerColor: "black",
-            markerBorderColor: "#ccc"
+            indexLabelFontWeight: 'bold', indexLabelFontSize: 13,
+            indexLabelFontColor: wentUp ? '#29abe2' : '#c03',
+            markerSize: 3, markerType: 'circle',
+            markerColor: 'black', markerBorderColor: '#ccc'
         });
-        
-        priceChartPosition++;
-        
+
         if (priceDataPoints.length > 20) {
             priceDataPoints.shift();
-            priceDataPoints.forEach((point, index) => {
-                point.x = index + 1;
-            });
-            priceChartPosition = priceDataPoints.length + 1;
+            const base = priceChartPosition - 20;
+            for (let i = 0; i < priceDataPoints.length; i++) priceDataPoints[i].x = base + i;
         }
-        
-        // Ajustar rango Y dinámicamente
+
         if (priceDataPoints.length > 1) {
-            const prices = priceDataPoints.map(p => p.y);
-            const minPrice = Math.min(...prices);
-            const maxPrice = Math.max(...prices);
-            const range = maxPrice - minPrice;
-            
-            priceChart.options.axisY.minimum = minPrice - (range * 0.1);
-            priceChart.options.axisY.maximum = maxPrice + (range * 0.1);
+            let mn = Infinity, mx = -Infinity;
+            for (let i = 0; i < priceDataPoints.length; i++) {
+                if (priceDataPoints[i].y < mn) mn = priceDataPoints[i].y;
+                if (priceDataPoints[i].y > mx) mx = priceDataPoints[i].y;
+            }
+            const rng = mx - mn;
+            priceChart.options.axisY.minimum = mn - rng * 0.1;
+            priceChart.options.axisY.maximum = mx + rng * 0.1;
         }
-        
-        priceChart.options.data[0].dataPoints = priceDataPoints;
-        priceChart.render();
+
+        if (!_priceRenderPending) {
+            _priceRenderPending = true;
+            setTimeout(() => { priceChart.options.data[0].dataPoints = priceDataPoints; priceChart.render(); _priceRenderPending = false; }, 200);
+        }
     }
-    
+
     function clearChart() {
         digitsDataPoints = [];
-        currentPosition = 1;
-        
-        if (digitsChart) {
-            digitsChart.options.data[0].dataPoints = [];
-            digitsChart.render();
-        }
-        
+        currentPosition  = 1;
         digits = [];
         digitHistory = [];
-        
-        if (digitsContainer) {
-            digitsContainer.innerHTML = '';
-        }
-        
-        if (digitCountEl) {
-            digitCountEl.textContent = '0';
-        }
-        
-        console.log("🧹 Gráfico de dígitos limpiado");
+        if (digitsChart) { digitsChart.options.data[0].dataPoints = []; digitsChart.render(); }
+        if (digitsContainer) digitsContainer.innerHTML = '';
+        if (digitCountEl)    digitCountEl.textContent = '0';
     }
-    
+
     function clearPriceChart() {
-        priceDataPoints = [];
+        priceDataPoints    = [];
         priceChartPosition = 1;
-        priceHistory = [];
-        
+        priceHistory       = [];
+        greenDigitsCount   = 0;
+        lastMaxDigit = lastMinDigit = null;
+        levelHistory = [];
+        initializeLevelHistory();
+        updateLevelInfoPanel();
         if (priceChart) {
             priceChart.options.data[0].dataPoints = [];
             delete priceChart.options.axisY.minimum;
             delete priceChart.options.axisY.maximum;
             priceChart.render();
         }
-        
-        // Reiniciar contadores de nivel
-        greenDigitsCount = 0;
-        lastMaxDigit = null;
-        lastMinDigit = null;
-        levelHistory = [];
-        initializeLevelHistory();
-        
-        console.log("🧹 Gráfico de precios y sistema de niveles limpiado");
     }
-    
-    // ====================== FUNCIONES DE MONITOREO MEJORADO ======================
-    function startTradeMonitor(tradeType, entryPrice) {
-        const tradeId = 'trade-' + Date.now();
-        
+
+    // ====================== MONITOR DE OPERACIÓN ======================
+    function startTradeMonitorWithRealData(contractId, tradeType, entryPrice, entryPriceDisplayed, entryTime) {
         activeTrade = {
-            id: tradeId,
-            type: tradeType,
-            entryPrice: parseFloat(entryPrice),
-            currentPrice: parseFloat(entryPrice),
-            startTime: new Date(),
-            ticksRemaining: 5,
-            isWinning: false,
-            profitLoss: 0.00
+            id: contractId, type: tradeType,
+            entryPrice, entryPriceDisplayed,
+            currentPrice: entryPrice,
+            startTime: entryTime,
+            ticksRemaining: 5, currentTickIndex: 1,
+            isWinning: false, profitLoss: 0
         };
-        
-        // Reiniciar datos del gráfico
-        priceHistoryData = [{
-            price: parseFloat(entryPrice),
-            timestamp: Date.now()
-        }];
-        
+
+        contractTicks    = [{ price: entryPrice, timestamp: entryTime.getTime(), tick_index: 1 }];
+        priceHistoryData = contractTicks.map(t => ({ price: t.price, timestamp: t.timestamp }));
+
         tradeMonitorEl.classList.remove('hidden');
-        updateTradeMonitor(entryPrice);
-        
-        // Iniciar intervalo de actualización
-        if (monitorInterval) clearInterval(monitorInterval);
-        monitorInterval = setInterval(() => {
-            if (activeTrade) {
-                // Actualizar tiempo transcurrido
-                updateElapsedTime();
-                
-                // Actualizar monitor
-                updateMonitorFromPrice(activeTrade.currentPrice);
-                
-                // Redibujar gráfico
-                drawMonitorChart();
-            }
-        }, 1000); // Actualizar cada segundo
-        
-        // Notificación de inicio
-        showNotification(
-            'Operación Iniciada',
-            `${tradeType} @ $${entryPrice}`,
-            'info'
-        );
-        
-        // Actualizar canvas
+        updateTradeMonitorWithRealData();
+
+        // Sin setInterval — el tiempo se actualiza en cada tick real del WebSocket
+        if (monitorInterval) { clearInterval(monitorInterval); monitorInterval = null; }
+
+        showNotification('Operación Iniciada',
+            `${tradeType} @ $${entryPrice.toFixed(4)} (ID: ${contractId.substring(0,8)}...)`, 'info');
+
         resizeMonitorCanvas();
-        
-        console.log(`📈 Monitor iniciado: ${tradeType} @ $${entryPrice}`);
     }
-    
-    function updateTradeMonitor(price) {
+
+    function updateTradeMonitorWithRealData() {
         if (!activeTrade) return;
-        
-        const assetValue = document.getElementById("asset-selector").value;
-        const xd = obtenerDecimalesPorInstrumento(assetValue);
-        const currentPrice = parseFloat(price).toFixed(xd);
-        
-        activeTrade.currentPrice = parseFloat(currentPrice);
-        
-        // Agregar al historial de precios para el gráfico
-        priceHistoryData.push({
-            price: activeTrade.currentPrice,
-            timestamp: Date.now()
-        });
-        
-        // Mantener solo los últimos puntos
-        if (priceHistoryData.length > MAX_MONITOR_POINTS) {
-            priceHistoryData.shift();
-        }
-        
-        const difference = activeTrade.currentPrice - activeTrade.entryPrice;
-        const percentageChange = (difference / activeTrade.entryPrice) * 100;
-        
-        let isWinning = false;
-        if (activeTrade.type === 'CALL') {
-            isWinning = difference > 0;
-        } else if (activeTrade.type === 'PUT') {
-            isWinning = difference < 0;
-        }
-        
-        activeTrade.isWinning = isWinning;
-        activeTrade.profitLoss = difference;
-        
-        // Actualizar estado visual
-        updateMonitorStatus(isWinning);
-        
-        // Actualizar información en el panel
-        updateMonitorInfoPanel(activeTrade.entryPrice, activeTrade.currentPrice, difference, percentageChange);
-        
-        // Actualizar ticks restantes
-        if (activeTrade.ticksRemaining > 0) {
-            activeTrade.ticksRemaining--;
-            if (ticksRemainingEl) {
-                ticksRemainingEl.textContent = `${activeTrade.ticksRemaining} ticks`;
-                
-                // Cambiar color según ticks restantes
-                if (activeTrade.ticksRemaining <= 2) {
-                    ticksRemainingEl.style.color = 'var(--danger-color)';
-                } else if (activeTrade.ticksRemaining <= 3) {
-                    ticksRemainingEl.style.color = 'var(--warning-color)';
-                }
-            }
-        }
-        
-        // Redibujar gráfico
-        drawMonitorChart();
-    }
-    
-    function updateMonitorInfoPanel(entryPrice, currentPrice, difference, percentage) {
         const xd = obtenerDecimalesPorInstrumento(currentAsset);
-        
-        // Actualizar valores
-        infoEntryPriceEl.textContent = entryPrice.toFixed(xd);
-        infoCurrentPriceEl.textContent = currentPrice.toFixed(xd);
-        infoCurrentPriceEl.className = `monitor-info-value ${difference >= 0 ? 'positive' : 'negative'}`;
-        
-        infoPriceDifferenceEl.textContent = difference.toFixed(xd);
-        infoPriceDifferenceEl.className = `monitor-info-value ${difference >= 0 ? 'positive' : 'negative'}`;
-        
-        infoPercentageChangeEl.textContent = `${percentage >= 0 ? '+' : ''}${percentage.toFixed(4)}%`;
-        infoPercentageChangeEl.className = `monitor-info-value ${percentage >= 0 ? 'positive' : 'negative'}`;
-        
-        infoTradeStateEl.textContent = difference >= 0 ? 'GANANDO' : 'PERDIENDO';
-        infoTradeStateEl.className = `monitor-info-value ${difference >= 0 ? 'positive' : 'negative'}`;
-        
-        // Añadir indicador de ganancia/pérdida
-        const profitIndicator = difference >= 0 ? 
-            `<span class="profit-indicator positive">+${Math.abs(difference).toFixed(xd)}</span>` :
-            `<span class="profit-indicator negative">-${Math.abs(difference).toFixed(xd)}</span>`;
-        
-        infoPriceDifferenceEl.innerHTML = `${difference.toFixed(xd)} ${profitIndicator}`;
+
+        if (infoEntryPriceEl) infoEntryPriceEl.textContent = activeTrade.entryPrice.toFixed(xd);
+        if (infoCurrentPriceEl) infoCurrentPriceEl.textContent = activeTrade.currentPrice.toFixed(xd);
+
+        const diff = activeTrade.currentPrice - activeTrade.entryPrice;
+        const pct  = (diff / activeTrade.entryPrice) * 100;
+
+        const isWinning = activeTrade.type === 'CALL' ? diff > 0 : diff < 0;
+        activeTrade.isWinning  = isWinning;
+        activeTrade.profitLoss = diff;
+
+        updateMonitorStatus(isWinning);
+        updateMonitorInfoPanel(activeTrade.entryPrice, activeTrade.currentPrice, diff, pct, xd);
+
+        if (ticksRemainingEl) {
+            ticksRemainingEl.textContent = `${activeTrade.ticksRemaining} ticks`;
+            ticksRemainingEl.style.color = activeTrade.ticksRemaining <= 2 ? 'var(--danger-color)' :
+                                           activeTrade.ticksRemaining <= 3 ? 'var(--warning-color)' : '';
+        }
+
+        if (infoCurrentTickEl) infoCurrentTickEl.textContent = `${activeTrade.currentTickIndex || 0}/5`;
+
+        // Un solo render del canvas por actualización de datos
+        drawMonitorChartWithRealData();
     }
-    
+
+    function updateMonitorInfoPanel(entryPrice, currentPrice, diff, pct, xd) {
+        if (!infoEntryPriceEl) return;
+        infoEntryPriceEl.textContent  = entryPrice.toFixed(xd);
+        infoCurrentPriceEl.textContent = currentPrice.toFixed(xd);
+        infoCurrentPriceEl.className = `monitor-info-value ${diff >= 0 ? 'positive' : 'negative'}`;
+        infoPriceDifferenceEl.innerHTML = `${diff.toFixed(xd)}<span class="profit-indicator ${diff >= 0 ? 'positive' : 'negative'}">${diff >= 0 ? '+' : ''}${diff.toFixed(xd)}</span>`;
+        infoPriceDifferenceEl.className = `monitor-info-value ${diff >= 0 ? 'positive' : 'negative'}`;
+        infoPercentageChangeEl.textContent = `${pct >= 0 ? '+' : ''}${pct.toFixed(4)}%`;
+        infoPercentageChangeEl.className   = `monitor-info-value ${pct >= 0 ? 'positive' : 'negative'}`;
+        infoTradeStateEl.textContent = diff >= 0 ? 'GANANDO' : 'PERDIENDO';
+        infoTradeStateEl.className   = `monitor-info-value ${diff >= 0 ? 'positive' : 'negative'}`;
+    }
+
+    function updateMonitorWithRealData(realTicks) {
+        if (!activeTrade || !realTicks.length) return;
+        const last = realTicks[realTicks.length - 1];
+        activeTrade.currentPrice     = last.price;
+        activeTrade.ticksRemaining   = 5 - last.tick_index;
+        activeTrade.currentTickIndex = last.tick_index;
+
+        const diff      = activeTrade.currentPrice - activeTrade.entryPrice;
+        const pct       = (diff / activeTrade.entryPrice) * 100;
+        const isWinning = activeTrade.type === 'CALL' ? diff > 0 : diff < 0;
+
+        activeTrade.isWinning  = isWinning;
+        activeTrade.profitLoss = diff;
+
+        updateMonitorStatus(isWinning);
+        const xd = obtenerDecimalesPorInstrumento(currentAsset);
+        updateMonitorInfoPanel(activeTrade.entryPrice, activeTrade.currentPrice, diff, pct, xd);
+        updateElapsedTime();
+
+        // Construir priceHistoryData en un solo loop sin .map()
+        priceHistoryData = [];
+        for (let i = 0; i < realTicks.length; i++) {
+            priceHistoryData.push({ price: realTicks[i].price, timestamp: realTicks[i].timestamp });
+        }
+
+        if (infoCurrentTickEl) infoCurrentTickEl.textContent = `${last.tick_index}/5`;
+
+        drawMonitorChartWithRealData();
+    }
+
     function updateElapsedTime() {
         if (!activeTrade || !infoElapsedTimeEl) return;
-        
-        const elapsed = Date.now() - activeTrade.startTime;
-        const seconds = Math.floor(elapsed / 1000);
-        const minutes = Math.floor(seconds / 60);
-        const remainingSeconds = seconds % 60;
-        
-        infoElapsedTimeEl.textContent = `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+        const s = Math.floor((Date.now() - activeTrade.startTime) / 1000);
+        infoElapsedTimeEl.textContent =
+            String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
     }
-    
-    function updateMonitorFromPrice(price) {
-        if (!activeTrade) return;
-        updateTradeMonitor(price);
-    }
-    
+
     function updateMonitorStatus(isWinning) {
         if (!monitorStatusEl) return;
-        
-        if (isWinning) {
-            monitorStatusEl.className = 'monitor-status winning';
-            monitorStatusEl.innerHTML = '<i class="fas fa-circle"></i><span>GANANDO</span>';
-            monitorStatusEl.style.color = 'var(--success-color)';
-        } else {
-            monitorStatusEl.className = 'monitor-status losing';
-            monitorStatusEl.innerHTML = '<i class="fas fa-circle"></i><span>PERDIENDO</span>';
-            monitorStatusEl.style.color = 'var(--danger-color)';
-        }
-        
-        // Cambiar color de fondo del gráfico según estado
+        monitorStatusEl.className = 'monitor-status ' + (isWinning ? 'winning' : 'losing');
+        monitorStatusEl.innerHTML = `<i class="fas fa-circle"></i><span>${isWinning ? 'GANANDO' : 'PERDIENDO'}</span>`;
         if (monitorChartEl) {
-            if (isWinning) {
-                monitorChartEl.style.backgroundColor = 'rgba(46, 204, 113, 0.05)';
-                monitorChartEl.style.border = '1px solid rgba(46, 204, 113, 0.2)';
-            } else {
-                monitorChartEl.style.backgroundColor = 'rgba(231, 76, 60, 0.05)';
-                monitorChartEl.style.border = '1px solid rgba(231, 76, 60, 0.2)';
-            }
+            monitorChartEl.style.backgroundColor = isWinning ? 'rgba(46,204,113,0.05)' : 'rgba(231,76,60,0.05)';
+            monitorChartEl.style.borderColor      = isWinning ? 'rgba(46,204,113,0.2)'  : 'rgba(231,76,60,0.2)';
         }
     }
-    
+
     function stopTradeMonitor() {
-        if (monitorInterval) {
-            clearInterval(monitorInterval);
-            monitorInterval = null;
-        }
-        
-        setTimeout(() => {
-            tradeMonitorEl.classList.add('hidden');
-        }, 3000);
-        
-        activeTrade = null;
-        console.log("⏹️ Monitor detenido");
+        if (monitorInterval) { clearInterval(monitorInterval); monitorInterval = null; }
+        setTimeout(() => { if (tradeMonitorEl) tradeMonitorEl.classList.add('hidden'); }, 3000);
+        activeTrade    = null;
+        contractTicks  = [];
     }
-    
-    // ====================== FUNCIONES DE TRADING CORREGIDAS ======================
+
+    // ====================== TRADING ======================
     function executeTrade(type) {
-        if (!running) {
-            alert("⚠️ Primero debes conectar el feed de precios");
-            return;
-        }
-        
-        if (isTrading) {
-            alert("⏳ Ya hay una operación en curso. Espera a que termine.");
-            return;
-        }
-        
-        if (tradingStake <= 0) {
-            alert("❌ El monto a operar debe ser mayor a 0");
-            return;
-        }
-        
-        if (tradingStake > balance) {
-            alert("❌ Saldo insuficiente");
-            return;
-        }
-        
-        console.log(`🎯 Ejecutando operación ${type} por $${tradingStake.toFixed(2)}`);
-        
+        if (!running) { alert('⚠️ Primero debes conectar el feed de precios'); return; }
+        if (isTrading) { alert('⏳ Ya hay una operación en curso. Espera a que termine.'); return; }
+        if (tradingStake <= 0) { alert('❌ El monto a operar debe ser mayor a 0'); return; }
+        if (tradingStake > balance) { alert('❌ Saldo insuficiente'); return; }
+
         isTrading = true;
-        tradeStatusEl.textContent = "OPERANDO...";
-        tradeStatusEl.style.color = "#f39c12";
-        
-        const assetValue = document.getElementById("asset-selector").value;
-        const xd = obtenerDecimalesPorInstrumento(assetValue);
-        const currentPrice = parseFloat(priceEl.textContent).toFixed(xd);
-        startTradeMonitor(type, currentPrice);
-        
-        // Llamar a la función de operación automática
+        tradeStatusEl.textContent  = 'OPERANDO...';
+        tradeStatusEl.style.color  = '#f39c12';
         window.operarAutomatico(type === 'CALL' ? 'UP' : 'DOWN', tradingStake);
     }
-    
-    // ====================== FUNCIÓN PARA RESETEAR ESTADO DE TRADING ======================
-    function resetTradingState() {
-        isTrading = false;
-        currentContract = null;
-        tradeStatusEl.textContent = "LISTO";
-        tradeStatusEl.style.color = "#27ae60";
-        stopTradeMonitor();
-        
-        console.log("🔄 Estado de trading reiniciado");
-    }
-    
-    // ====================== FUNCIÓN DE TIMEOUT PARA OPERACIONES COLGADAS ======================
-    function setupTradeTimeout() {
-        // Si después de 30 segundos no hay respuesta, reiniciar estado
-        setTimeout(() => {
-            if (isTrading) {
-                console.warn("⚠️ Timeout: La operación lleva más de 30 segundos sin respuesta");
-                resetTradingState();
-                
-                showNotification(
-                    'Timeout de Operación',
-                    'La operación excedió el tiempo límite. Se reinició el estado.',
-                    'warning'
-                );
-            }
-        }, 30000); // 30 segundos de timeout
-    }
-    
+
     function procesarResultadoTrading(ganancia) {
-        console.log(`📊 Procesando resultado: $${ganancia.toFixed(2)}`);
-        
-        // Resetear estado de trading
         isTrading = false;
-        
         stopTradeMonitor();
-        
-        balance += ganancia;
-        totalProfit += ganancia;
+
+        balance      += ganancia;
+        totalProfit  += ganancia;
         totalTrades++;
-        
-        if (ganancia > 0) {
-            wins++;
-            lastTradeEl.innerHTML = `<span style="color:#27ae60">CALL +$${ganancia.toFixed(2)}</span>`;
-        } else {
-            losses++;
-            lastTradeEl.innerHTML = `<span style="color:#e74c3c">PUT -$${Math.abs(ganancia).toFixed(2)}</span>`;
+        ganancia > 0 ? wins++ : losses++;
+
+        if (lastTradeEl) {
+            lastTradeEl.innerHTML = ganancia > 0
+                ? `<span style="color:#27ae60">CALL +$${ganancia.toFixed(2)}</span>`
+                : `<span style="color:#e74c3c">PUT -$${Math.abs(ganancia).toFixed(2)}</span>`;
         }
-        
-        const winRate = totalTrades > 0 ? Math.round((wins / totalTrades) * 100) : 0;
-        
+
         updateTradingDisplay();
-        winRateEl.textContent = `${winRate}%`;
-        
-        tradeStatusEl.textContent = "LISTO";
-        tradeStatusEl.style.color = "#27ae60";
-        
-        currentContract = null; // IMPORTANTE: Limpiar el contrato actual
-        
-        // Notificación de resultado
+        if (winRateEl) winRateEl.textContent = `${totalTrades > 0 ? Math.round(wins / totalTrades * 100) : 0}%`;
+
+        tradeStatusEl.textContent = 'LISTO';
+        tradeStatusEl.style.color = '#27ae60';
+
         if (ganancia > 0) {
-            showNotification(
-                '¡Operación Ganadora!',
-                `+$${ganancia.toFixed(2)} | Nuevo balance: $${balance.toFixed(2)}`,
-                'success'
-            );
+            showNotification('¡Operación Ganadora!', `+$${ganancia.toFixed(2)} | Balance: $${balance.toFixed(2)}`, 'success');
             if (soundAlertsEnabled) playAlertSound('win');
         } else {
-            showNotification(
-                'Operación Perdedora',
-                `-$${Math.abs(ganancia).toFixed(2)} | Nuevo balance: $${balance.toFixed(2)}`,
-                'error'
-            );
+            showNotification('Operación Perdedora', `-$${Math.abs(ganancia).toFixed(2)} | Balance: $${balance.toFixed(2)}`, 'error');
             if (soundAlertsEnabled) playAlertSound('loss');
         }
-        
-        console.log(`📊 Resultado: ${ganancia > 0 ? 'GANANCIA' : 'PÉRDIDA'} $${Math.abs(ganancia).toFixed(2)} | Balance: $${balance.toFixed(2)}`);
+
+        // ── REANUDAR ANÁLISIS DE ESTRATEGIA ──
+        strategyPaused = false;
+        strategyBuffer = [];   // Buffer limpio para buscar patrón fresco
+        setStrategyStatusBar('resumed', 'Resultado recibido — Buscando nuevo patrón');
+        showInternalNotification(
+            '🔍 Análisis reanudado',
+            'Buscando nuevo patrón de 5 dígitos...',
+            'success'
+        );
     }
-    
+
     function updateTradingDisplay() {
-        if (balanceEl) balanceEl.textContent = `$${balance.toFixed(2)}`;
+        if (balanceEl)      balanceEl.textContent = `$${balance.toFixed(2)}`;
         if (totalProfitEl) {
             totalProfitEl.textContent = `$${totalProfit > 0 ? '+' : ''}${totalProfit.toFixed(2)}`;
             totalProfitEl.style.color = totalProfit >= 0 ? '#27ae60' : '#e74c3c';
         }
-        if (winsEl) winsEl.textContent = wins;
-        if (lossesEl) lossesEl.textContent = losses;
+        if (winsEl)       winsEl.textContent       = wins;
+        if (lossesEl)     lossesEl.textContent      = losses;
         if (totalTradesEl) totalTradesEl.textContent = totalTrades;
-        
-        const stakeInput = document.getElementById('trading-stake');
-        if (stakeInput && parseFloat(stakeInput.value) > balance) {
-            stakeInput.style.borderColor = '#e74c3c';
-        } else {
-            stakeInput.style.borderColor = '';
-        }
+
+        const inp = document.getElementById('trading-stake');
+        if (inp) inp.style.borderColor = parseFloat(inp.value) > balance ? '#e74c3c' : '';
     }
-    
+
+    // ====================== RESULTADO MODAL (sin re-parseo de HTML) ======================
+    function mostrarResultadoOperacion(profit, status, contract_id) {
+        const resultContent = document.getElementById('result-content');
+        if (!resultContent) return;
+
+        // Guardar en array en memoria (máx 5)
+        lastResults.unshift({ profit, status, contract_id, time: new Date().toLocaleTimeString(), balance });
+        if (lastResults.length > 5) lastResults.pop();
+
+        // Renderizar desde el array
+        const frag = document.createDocumentFragment();
+        lastResults.forEach(r => {
+            const div = document.createElement('div');
+            div.className = 'result-section';
+            div.style.cssText = `border:2px solid ${r.profit > 0 ? '#27ae60' : '#e74c3c'};border-radius:8px;padding:15px;margin-top:8px;background:rgba(255,255,255,0.04)`;
+            div.innerHTML = `
+                <div class="result-section-title" style="color:${r.profit > 0 ? '#27ae60' : '#e74c3c'};font-size:1.1rem;margin-bottom:10px;">
+                    <i class="fas fa-${r.profit > 0 ? 'trophy' : 'times-circle'}"></i>
+                    ${r.profit > 0 ? 'OPERACIÓN GANADORA ✅' : 'OPERACIÓN PERDEDORA ❌'}
+                </div>
+                <div class="info-line"><span style="color:#95a5a6;">Contract ID:</span><span style="font-family:monospace;">${r.contract_id}</span></div>
+                <div class="info-line"><span style="color:#95a5a6;">Estado:</span><span>${r.status}</span></div>
+                <div class="info-line"><span style="color:#95a5a6;">Resultado:</span>
+                    <strong style="color:${r.profit > 0 ? '#27ae60' : '#e74c3c'};font-size:1.2rem;">
+                        $${r.profit > 0 ? '+' : ''}${r.profit.toFixed(2)}
+                    </strong>
+                </div>
+                <div class="info-line"><span style="color:#95a5a6;">Hora:</span><span>${r.time}</span></div>
+                <div class="info-line"><span style="color:#95a5a6;">Nuevo Balance:</span>
+                    <strong style="color:#3498db;font-size:1.1rem;">$${r.balance.toFixed(2)}</strong>
+                </div>`;
+            frag.appendChild(div);
+        });
+
+        resultContent.innerHTML = '';
+        resultContent.appendChild(frag);
+
+        document.getElementById('result-panel').style.display = 'block';
+        document.getElementById('overlay').style.display      = 'block';
+    }
+
     // ====================== SISTEMA DE TICKS ======================
     function startTicksPerMinuteCounter() {
         if (minuteTimer) clearInterval(minuteTimer);
-        
-        minuteTimer = setInterval(() => {
-            ticksPerMinute = ticksCounter;
-            ticksCounter = 0;
-        }, 60000);
+        minuteTimer = setInterval(() => { ticksPerMinute = ticksCounter; ticksCounter = 0; }, 60000);
     }
-    
+
     function addTickToHistory(price, digit, direction) {
-        const tick = {
-            price: price,
-            digit: digit,
-            direction: direction,
-            time: new Date().toLocaleTimeString()
-        };
-        
-        ticksHistory.unshift(tick);
-        
-        if (ticksHistory.length > 10) {
-            ticksHistory.pop();
+        ticksHistory.unshift({ price, digit, direction, time: new Date().toLocaleTimeString() });
+        if (ticksHistory.length > 10) ticksHistory.pop();
+    }
+
+    // Actualizar contenedor de dígitos sin reconstruir todo el DOM
+    function updateDigitsContainer(digit, wentUp, level) {
+        digits.push({ value: digit, up: wentUp, level });
+        if (digits.length > 10) digits.shift();
+
+        if (digitCountEl) digitCountEl.textContent = digits.length;
+        if (greenDigitCountBadge) greenDigitCountBadge.textContent = greenDigitsCount;
+
+        if (!digitsContainer) return;
+
+        // Insertar nuevo badge al inicio
+        const span = document.createElement('span');
+        let cls = wentUp ? 'digit-badge digit-blue' : 'digit-badge digit-red';
+        if (level === 'max') cls += ' max-digit';
+        else if (level === 'min') cls += ' min-digit';
+        else cls += ' mid-digit';
+        span.className   = cls;
+        span.textContent = digit;
+        digitsContainer.insertBefore(span, digitsContainer.firstChild);
+
+        // Eliminar los que excedan el límite
+        while (digitsContainer.children.length > 10) {
+            digitsContainer.removeChild(digitsContainer.lastChild);
         }
     }
-    
-    // FUNCIÓN MODIFICADA: Ahora incluye nivel de precio
-   function updateDigitsContainer(digit, wentUp, level) {
-    digits.push({ value: digit, up: wentUp, level: level });
-    if (digits.length > 10) {
-        digits.shift();
-    }
-    
-    if (digitCountEl) {
-        digitCountEl.textContent = digits.length;
-    }
-    
-    if (digitsContainer) {
-        let html = '';
-        // USAR digits directamente en orden natural (más reciente último)
-        digits.forEach((item, index) => {
-            let digitClass = item.up ? 'digit-blue' : 'digit-red';
-            
-            // Añadir clase según nivel
-            switch(item.level) {
-                case 'max':
-                    digitClass += ' max-digit';
-                    break;
-                case 'min':
-                    digitClass += ' min-digit';
-                    break;
-                case 'mid':
-                    digitClass += ' mid-digit';
-                    break;
-            }
-            
-            html += `<span class="digit-badge ${digitClass}">${item.value}</span>`;
-        });
-        
-        digitsContainer.innerHTML = html;
-    }
-}
-    
-    // ====================== FUNCIONES DE PROCESAMIENTO DE PRECIOS ======================
+
+    // ====================== PROCESAMIENTO DE PRECIOS ======================
     function obtenerDecimalesPorInstrumento(assetValue) {
-        switch(assetValue) {
-            case 'R_100': return 2;
-            case 'R_10': return 3;
-            case 'R_25': return 3;
-            case 'R_50': return 4;
-            case 'R_75': return 4;
-            case 'RDBEAR': return 4;
-            case 'RDBULL': return 4;
-            case 'frxEURUSD': return 5;
-            case 'frxEURJPY': return 3;
-            default: return 2;
-        }
+        const map = { R_100: 2, R_10: 3, R_25: 3, R_50: 4, R_75: 4, RDBEAR: 4, RDBULL: 4, frxEURUSD: 5, frxEURJPY: 3 };
+        return map[assetValue] || 2;
     }
-    
+
     function esInstrumentoForex(assetValue) {
         return assetValue === 'frxEURUSD' || assetValue === 'frxEURJPY';
     }
-    
+
     function extractDigitAfterDecimal(price) {
-        const assetValue = document.getElementById("asset-selector").value;
-        const xd = obtenerDecimalesPorInstrumento(assetValue);
-        const formattedPrice = parseFloat(price).toFixed(xd);
-        
-        let digit;
-        
-        if (esInstrumentoForex(assetValue)) {
-            var priceParts = formattedPrice.split('.');
-            digit = priceParts[1] ? priceParts[1].slice(-1) : "0";
-        } else {
-            digit = formattedPrice.slice(-1);
+        // Usar selector cacheado en lugar de getElementById en cada tick
+        const xd  = obtenerDecimalesPorInstrumento(currentAsset);
+        const fmt = parseFloat(price).toFixed(xd);
+        if (esInstrumentoForex(currentAsset)) {
+            const parts = fmt.split('.');
+            return parseInt(parts[1] ? parts[1].slice(-1) : '0');
         }
-        
-        return parseInt(digit);
+        return parseInt(fmt.slice(-1));
     }
-    
+
     function procesarDigitoConLogica010(digitActual, digitAnterior, wentUp) {
-        let tic2nd = digitActual;
-        
-        if (digitActual !== 0) {
-            tic2nd = wentUp ? parseFloat(digitActual) : -parseFloat(digitActual);
-        } else {
-            if (digitAnterior > 5 && digitActual === 0) {
-                tic2nd = wentUp ? 10 : -10;
-            } else if (digitAnterior <= 5 && digitActual === 0) {
-                tic2nd = wentUp ? 0 : -0;
-            }
-        }
-        
-        return tic2nd;
+        if (digitActual !== 0) return wentUp ? parseFloat(digitActual) : -parseFloat(digitActual);
+        if (digitAnterior > 5) return wentUp ? 10 : -10;
+        return 0;
     }
-    
-    function determineTrend(currentPrice, lastPrice) {
-        if (lastPrice === null) return true;
-        
-        const assetValue = document.getElementById("asset-selector").value;
-        const xd = obtenerDecimalesPorInstrumento(assetValue);
-        
-        const current = parseFloat(currentPrice).toFixed(xd);
-        const last = parseFloat(lastPrice).toFixed(xd);
-        
-        return parseFloat(current) >= parseFloat(last);
+
+    function determineTrend(currentPrice, lp) {
+        if (lp === null) return true;
+        const xd = obtenerDecimalesPorInstrumento(currentAsset);
+        return parseFloat(parseFloat(currentPrice).toFixed(xd)) >= parseFloat(parseFloat(lp).toFixed(xd));
     }
-    
-    // FUNCIÓN PRINCIPAL MODIFICADA: Ahora detecta nivel de precio
+
+    let _levelInfoPending = false;
+
     function updateDigit(price, wentUp) {
+        const xd             = obtenerDecimalesPorInstrumento(currentAsset);
+        const formattedPrice = parseFloat(price).toFixed(xd);
+        const digit          = extractDigitAfterDecimal(price);
+        const level          = updatePriceLevel(formattedPrice);
+        const digitAnterior  = digitHistory.length > 0 ? digitHistory[digitHistory.length - 1] : null;
+        const processedVal   = procesarDigitoConLogica010(digit, digitAnterior, wentUp);
+
+        digitHistory.push(digit);
+        if (digitHistory.length > 20) digitHistory.shift();
+
+        updateCanvasJSChart(digit, wentUp, Math.abs(processedVal));
+        updatePriceChart(price, digit, wentUp);
+        updateDigitsContainer(digit, wentUp, level);
+        updateDigitBadgesWithLevel(digit, level);
+
+        tickCount++;
+        ticksCounter++;
+        // Historial ligero: insertar al inicio del array sin reconstruir
+        ticksHistory.unshift({ price: formattedPrice, digit, direction: wentUp ? 'UP' : 'DOWN', time: new Date().toLocaleTimeString() });
+        if (ticksHistory.length > 10) ticksHistory.length = 10;
+        lastPrice = price;
+
+        feedStrategyDigit(Math.abs(processedVal), wentUp);
+
         requestAnimationFrame(() => {
-            const assetValue = document.getElementById("asset-selector").value;
-            const xd = obtenerDecimalesPorInstrumento(assetValue);
-            
-            const formattedPrice = parseFloat(price).toFixed(xd);
-            const digit = extractDigitAfterDecimal(price);
-            
-            // DETECTAR NIVEL DE PRECIO (MÁXIMO/MÍNIMO/MEDIO)
-            const level = updatePriceLevel(formattedPrice);
-            
-            const digitAnterior = digitHistory.length > 0 ? digitHistory[digitHistory.length - 1] : null;
-            const processedDigitValue = procesarDigitoConLogica010(digit, digitAnterior, wentUp);
-            
-            // Agregar a historial
-            digitHistory.push(digit);
-            if (digitHistory.length > 20) {
-                digitHistory.shift();
-            }
-            
-            // Actualizar elementos de la interfaz
             if (currentDigitEl) {
                 currentDigitEl.textContent = digit;
-                currentDigitEl.className = wentUp ? 'current-digit up' : 'current-digit down';
-                
-                // Añadir clase especial si es dígito verde (nivel medio)
-                if (level === 'mid') {
-                    currentDigitEl.classList.add('digit-green');
-                }
+                currentDigitEl.className   = 'current-digit ' + (wentUp ? 'up' : 'down');
+                if (level === 'mid') currentDigitEl.classList.add('digit-green');
             }
-            
-            if (priceEl) {
-                priceEl.textContent = formattedPrice;
-            }
-            
-            // Actualizar monitor si hay operación activa
-            if (activeTrade && isTrading) {
-                updateMonitorFromPrice(formattedPrice);
-            }
-            
-            // Actualizar gráficos
-            updateCanvasJSChart(digit, wentUp, Math.abs(processedDigitValue));
-            updatePriceChart(price, digit, wentUp);
-            
-            // Actualizar contenedor de dígitos CON NIVEL
-            updateDigitsContainer(digit, wentUp, level);
-            
-            // Actualizar badges con nivel
-            updateDigitBadgesWithLevel(digit, level);
-            
-            // Actualizar contadores
-            tickCount++;
-            ticksCounter++;
-            addTickToHistory(formattedPrice, digit, wentUp ? 'UP' : 'DOWN');
-            
-            lastPrice = price;
+            if (priceEl) priceEl.textContent = formattedPrice;
         });
     }
-    
-    // ====================== CONEXIÓN WEBSOCKET ======================
+
+    // ====================== WEBSOCKET: FEED DE PRECIOS ======================
     function startFeed() {
-        if (running) return;
-        
-        currentAsset = document.getElementById("asset-selector").value;
-        
-        const xd = obtenerDecimalesPorInstrumento(currentAsset);
-        const esForex = esInstrumentoForex(currentAsset);
-        console.log(`🎯 Instrumento: ${currentAsset}, Decimales: ${xd}, Forex: ${esForex}`);
-        
-        updateConnectionStatus("Conectando...", "#f39c12");
-        
-        ws = new WebSocket("wss://ws.binaryws.com/websockets/v3?app_id=1089");
+        if (running || isConnecting) return;
+        currentAsset = cachedAssetSelector ? cachedAssetSelector.value : 'R_10';
+        updateConnectionStatus('Conectando...', '#f39c12');
+        isConnecting = true;
+
+        ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
         ws.binaryType = 'arraybuffer';
-        
+
         ws.onopen = () => {
-            ws.send(JSON.stringify({ 
-                ticks: currentAsset, 
-                subscribe: 1 
-            }));
+            isConnecting = false;
+            ws.send(JSON.stringify({ ticks: currentAsset, subscribe: 1 }));
             running = true;
-            updateConnectionStatus("Conectado", "#27ae60");
-            console.log(`✅ Conectado a ${currentAsset} (xd=${xd})`);
+            updateConnectionStatus('Conectado', '#27ae60');
         };
-        
+
         ws.onmessage = msg => {
-            let data = JSON.parse(msg.data);
+            const data = JSON.parse(msg.data);
             if (data.tick) {
-                let price = parseFloat(data.tick.quote).toFixed(6);
-                let currentPrice = parseFloat(price);
-                
-                let wentUp = determineTrend(currentPrice, lastPrice);
+                const price   = parseFloat(data.tick.quote).toFixed(6);
+                const wentUp  = determineTrend(price, lastPrice);
                 updateDigit(price, wentUp);
             }
         };
-        
+
         ws.onclose = () => {
-            running = false;
-            updateConnectionStatus("Desconectado", "#e74c3c");
-            console.log("🔌 Conexión cerrada");
-            
+            running      = false;
+            isConnecting = false;
+            updateConnectionStatus('Desconectado', '#e74c3c');
+            // Reconectar solo si no fue cierre manual
             setTimeout(() => {
-                if (!running) {
-                    console.log("🔄 Intentando reconectar...");
-                    startFeed();
-                }
+                if (!running && !isConnecting) startFeed();
             }, 5000);
         };
-        
+
         ws.onerror = () => {
-            updateConnectionStatus("Error de conexión", "#e74c3c");
+            isConnecting = false;
+            updateConnectionStatus('Error de conexión', '#e74c3c');
         };
     }
-    
+
     function stopFeed() {
-        if (ws) {
-            ws.close();
-        }
-        running = false;
-        updateConnectionStatus("Desconectado", "#e74c3c");
-        console.log("⏹️ Feed detenido manualmente");
+        if (ws) { ws.onclose = null; ws.close(); }
+        running      = false;
+        isConnecting = false;
+        updateConnectionStatus('Desconectado', '#e74c3c');
     }
-    
+
+    // ====================== ESTRATEGIA CARTESIANA (PATRÓN 5 DÍGITOS) ======================
+    // Almacena los últimos 5 dígitos con su color: { value: number, blue: boolean }
+    let strategyBuffer  = [];
+    let signalCalls     = 0;
+    let signalPuts      = 0;
+    let signalNone      = 0;
+    let strategyPaused  = false;  // Se pausa mientras hay operación activa
+    let operationMode   = 'strategy'; // Fijo: solo modo estrategia, solo CALL
+
+    // Cache de elementos de estrategia
+    let patternDigitsRow, blueDirEl, redDirEl, blueDigitsEl, redDigitsEl;
+    let strategySignalBox, signalIconEl, signalTextEl, signalDetailEl;
+    let signalsHistoryEl, signalCallsEl, signalPutsEl, signalNoneEl;
+
+    // Cache elementos filtros (nuevos)
+    let filtersSectionEl;
+    let filter1ItemEl, filter1IconEl, filter1DescEl;
+    let filter2ItemEl, filter2IconEl, filter2DescEl;
+    let filter3ItemEl, filter3IconEl, filter3DescEl;
+
+    function initStrategyElements() {
+        patternDigitsRow  = document.getElementById('pattern-digits-row');
+        blueDirEl         = document.getElementById('blue-direction');
+        redDirEl          = document.getElementById('red-direction');
+        blueDigitsEl      = document.getElementById('blue-digits-display');
+        redDigitsEl       = document.getElementById('red-digits-display');
+        strategySignalBox = document.getElementById('strategy-signal-box');
+        signalIconEl      = document.getElementById('signal-icon');
+        signalTextEl      = document.getElementById('signal-text');
+        signalDetailEl    = document.getElementById('signal-detail');
+        signalsHistoryEl  = document.getElementById('signals-history');
+        signalCallsEl     = document.getElementById('signal-calls');
+        signalPutsEl      = document.getElementById('signal-puts');
+        signalNoneEl      = document.getElementById('signal-none');
+
+        // Filtros de confirmación (nuevos)
+        filtersSectionEl = document.getElementById('filters-section');
+        filter1ItemEl    = document.getElementById('filter1-item');
+        filter1IconEl    = document.getElementById('filter1-icon');
+        filter1DescEl    = document.getElementById('filter1-desc');
+        filter2ItemEl    = document.getElementById('filter2-item');
+        filter2IconEl    = document.getElementById('filter2-icon');
+        filter2DescEl    = document.getElementById('filter2-desc');
+        filter3ItemEl    = document.getElementById('filter3-item');
+        filter3IconEl    = document.getElementById('filter3-icon');
+        filter3DescEl    = document.getElementById('filter3-desc');
+    }
+
+    // Modo fijo: siempre estrategia — setOperationMode conservado como stub
+    // para no romper eventuales referencias externas, pero no hace nada.
+    function setOperationMode(mode) {
+        operationMode = 'strategy';
+    }
+
+    /**
+     * Analiza una secuencia de valores numéricos y determina si la dirección
+     * es estrictamente monotónica (sin retrocesos, sin repeticiones).
+     * Retorna: 'up' | 'down' | null
+     */
+    function analyzeSequence(values) {
+        if (values.length < 2) return null;
+
+        // Sin repeticiones
+        const unique = new Set(values);
+        if (unique.size !== values.length) return null;
+
+        let isStrictlyUp   = true;
+        let isStrictlyDown = true;
+
+        for (let i = 1; i < values.length; i++) {
+            if (values[i] <= values[i - 1]) isStrictlyUp   = false;
+            if (values[i] >= values[i - 1]) isStrictlyDown = false;
+        }
+
+        if (isStrictlyUp)   return 'up';
+        if (isStrictlyDown) return 'down';
+        return null;
+    }
+
+    /**
+     * Convierte dirección numérica en dirección de mercado según el tipo de dígito.
+     * Azules: subida numérica = alcista, bajada numérica = bajista
+     * Rojos:  subida numérica = bajista, bajada numérica = alcista
+     */
+    function toMarketDirection(numericDir, isBlue) {
+        if (numericDir === null) return null;
+        if (isBlue) return numericDir === 'up' ? 'alcista' : 'bajista';
+        else        return numericDir === 'down' ? 'alcista' : 'bajista';
+    }
+
+    // ====================== FILTROS DE CONFIRMACIÓN (3 nuevos) ======================
+
+    /**
+     * Actualiza la UI de un filtro individual.
+     * @param {HTMLElement} itemEl   — el div .filter-item
+     * @param {HTMLElement} iconEl   — el div .filter-icon
+     * @param {HTMLElement} descEl   — el div .filter-desc
+     * @param {boolean|null} pass    — true=pasa, false=falla, null=pendiente
+     * @param {string} msg           — texto descriptivo
+     */
+    function setFilterUI(itemEl, iconEl, descEl, pass, msg) {
+        if (!itemEl) return;
+        itemEl.className = 'filter-item ' + (pass === true ? 'filter-pass' : pass === false ? 'filter-fail' : 'filter-pending');
+        if (iconEl) iconEl.innerHTML = pass === true
+            ? '<i class="fas fa-check-circle"></i>'
+            : pass === false
+                ? '<i class="fas fa-times-circle"></i>'
+                : '<i class="fas fa-circle"></i>';
+        if (descEl) descEl.textContent = msg || '—';
+    }
+
+    /**
+     * Resetea los 3 filtros a estado pendiente y oculta la sección.
+     */
+    function resetFilters() {
+        if (filtersSectionEl) filtersSectionEl.style.display = 'none';
+        setFilterUI(filter1ItemEl, filter1IconEl, filter1DescEl, null, '—');
+        setFilterUI(filter2ItemEl, filter2IconEl, filter2DescEl, null, '—');
+        setFilterUI(filter3ItemEl, filter3IconEl, filter3DescEl, null, '—');
+    }
+
+    /**
+     * FILTRO 1 — Valor del último dígito del grupo dominante.
+     *
+     * Para CALL (grupo dominante = rojos):
+     *   El último rojo debe ser ≤ 5 → agotamiento bajista confirmado.
+     *   Un rojo final alto (≥ 6) indica que la presión bajista sigue activa.
+     *
+     * Para PUT (grupo dominante = azules):
+     *   El último azul debe ser ≤ 5 → agotamiento alcista confirmado.
+     *   Un azul final alto (≥ 6) indica que la presión alcista sigue activa.
+     *
+     * @returns {boolean}
+     */
+    function applyFilter1(isCall, dominantGroup) {
+        const lastVal = dominantGroup[dominantGroup.length - 1].value;
+        const pass    = lastVal <= 5;
+        const tipo    = isCall ? 'rojo' : 'azul';
+        const msg     = pass
+            ? `Último ${tipo} = ${lastVal} ≤ 5 ✓ Agotamiento confirmado`
+            : `Último ${tipo} = ${lastVal} ≥ 6 ✗ Grupo dominante aún fuerte`;
+        setFilterUI(filter1ItemEl, filter1IconEl, filter1DescEl, pass, msg);
+        return pass;
+    }
+
+    /**
+     * FILTRO 2 — Amplitud del grupo minoritario (2 dígitos).
+     *
+     * Para CALL (grupo minoritario = azules, 2 dígitos):
+     *   La diferencia entre el mayor y el menor azul no debe superar 6.
+     *   Un salto demasiado amplio sugiere sobreextensión puntual, no tendencia real.
+     *
+     * Para PUT (grupo minoritario = rojos, 2 dígitos):
+     *   Misma lógica: diferencia de rojos ≤ 6.
+     *
+     * @returns {boolean}
+     */
+    function applyFilter2(isCall, minorityGroup) {
+        const vals = minorityGroup.map(d => d.value);
+        const diff = Math.max(...vals) - Math.min(...vals);
+        const pass = diff <= 6;
+        const tipo = isCall ? 'azules' : 'rojos';
+        const msg  = pass
+            ? `Amplitud ${tipo} = ${diff} ≤ 6 ✓ Movimiento controlado`
+            : `Amplitud ${tipo} = ${diff} > 6 ✗ Sobreextensión detectada`;
+        setFilterUI(filter2ItemEl, filter2IconEl, filter2DescEl, pass, msg);
+        return pass;
+    }
+
+    /**
+     * FILTRO 3 — Convergencia del grupo dominante (3 dígitos).
+     *
+     * Para CALL (grupo dominante = rojos, 3 dígitos):
+     *   El último rojo debe ser estrictamente menor al primero.
+     *   Confirma descenso progresivo real, no solo monotónico por un instante.
+     *   Ejemplo válido: 9R→5R→3R (primer=9, último=3 → 3<9 ✓).
+     *   Ejemplo inválido: 3R→5R→4R (primer=3, último=4 → 4>3 ✗).
+     *
+     * Para PUT (grupo dominante = azules, 3 dígitos):
+     *   El último azul debe ser estrictamente mayor al primero.
+     *   Confirma ascenso progresivo real.
+     *
+     * @returns {boolean}
+     */
+    function applyFilter3(isCall, dominantGroup) {
+        const firstVal = dominantGroup[0].value;
+        const lastVal  = dominantGroup[dominantGroup.length - 1].value;
+        let pass, msg;
+
+        if (isCall) {
+            // Rojos deben converger hacia abajo: último < primero
+            pass = lastVal < firstVal;
+            msg  = pass
+                ? `Rojos: ${firstVal}→…→${lastVal} ✓ Descenso progresivo confirmado`
+                : `Rojos: ${firstVal}→…→${lastVal} ✗ Sin convergencia descendente`;
+        } else {
+            // Azules deben converger hacia arriba: último > primero
+            pass = lastVal > firstVal;
+            msg  = pass
+                ? `Azules: ${firstVal}→…→${lastVal} ✓ Ascenso progresivo confirmado`
+                : `Azules: ${firstVal}→…→${lastVal} ✗ Sin convergencia ascendente`;
+        }
+        setFilterUI(filter3ItemEl, filter3IconEl, filter3DescEl, pass, msg);
+        return pass;
+    }
+
+    // ====================== ANÁLISIS PRINCIPAL ======================
+
+    function runStrategyAnalysis() {
+        if (!patternDigitsRow) return;
+
+        const buf = strategyBuffer.slice(-5);
+
+        // Renderizar los 5 dígitos del patrón
+        if (patternDigitsRow) {
+            patternDigitsRow.innerHTML = '';
+            if (buf.length < 5) {
+                patternDigitsRow.innerHTML = `<div class="pattern-placeholder">Esperando ${5 - buf.length} dígito(s) más...</div>`;
+            } else {
+                buf.forEach(d => {
+                    const span = document.createElement('span');
+                    span.className = d.blue ? 'pattern-digit-badge blue' : 'pattern-digit-badge red';
+                    span.textContent = d.value;
+                    patternDigitsRow.appendChild(span);
+                });
+            }
+        }
+
+        if (buf.length < 5) {
+            resetFilters();
+            setSignalUI('none', 'ESPERANDO', `Necesito ${5 - buf.length} dígito(s) más`, false);
+            if (blueDigitsEl) blueDigitsEl.textContent = '-';
+            if (redDigitsEl)  redDigitsEl.textContent  = '-';
+            if (blueDirEl)    blueDirEl.textContent     = '—';
+            if (redDirEl)     redDirEl.textContent      = '—';
+            return;
+        }
+
+        // Separar azules y rojos manteniendo orden de aparición
+        const blues = buf.filter(d =>  d.blue);
+        const reds  = buf.filter(d => !d.blue);
+
+        // ── FILTRO DE PROPORCIÓN 3:2 ──────────────────────────────────────
+        const esPatronCALL = (reds.length === 3 && blues.length === 2);
+        const esPatronPUT  = (blues.length === 3 && reds.length === 2);
+
+        // Mostrar dígitos separados + conteo de proporción
+        if (blueDigitsEl) blueDigitsEl.textContent = blues.length
+            ? `${blues.map(d => d.value).join(' → ')}  (${blues.length})`
+            : 'Ninguno (0)';
+        if (redDigitsEl) redDigitsEl.textContent = reds.length
+            ? `${reds.map(d => d.value).join(' → ')}  (${reds.length})`
+            : 'Ninguno (0)';
+
+        if (!esPatronCALL && !esPatronPUT) {
+            resetFilters();
+            const blueNumDir = blues.length >= 2 ? analyzeSequence(blues.map(d => d.value)) : null;
+            const redNumDir  = reds.length  >= 2 ? analyzeSequence(reds.map(d  => d.value)) : null;
+            updateDirEl(blueDirEl, blueNumDir === null ? null : toMarketDirection(blueNumDir, true),  blues.length);
+            updateDirEl(redDirEl,  redNumDir  === null ? null : toMarketDirection(redNumDir,  false), reds.length);
+            setSignalUI('none', 'PROPORCIÓN INVÁLIDA',
+                `Rojos: ${reds.length} | Azules: ${blues.length} — Se requiere 3R+2A (CALL) o 3A+2R (PUT)`, true);
+            return;
+        }
+        // ─────────────────────────────────────────────────────────────────
+
+        // Analizar dirección numérica
+        const blueNumDir = blues.length >= 2 ? analyzeSequence(blues.map(d => d.value)) : (blues.length === 1 ? 'one' : null);
+        const redNumDir  = reds.length  >= 2 ? analyzeSequence(reds.map(d  => d.value)) : (reds.length  === 1 ? 'one' : null);
+
+        // Convertir a dirección de mercado
+        const blueMarket = blueNumDir === 'one' ? null : toMarketDirection(blueNumDir, true);
+        const redMarket  = redNumDir  === 'one' ? null : toMarketDirection(redNumDir, false);
+
+        // Mostrar dirección individual con indicadores
+        updateDirEl(blueDirEl, blueMarket, blues.length);
+        updateDirEl(redDirEl,  redMarket,  reds.length);
+
+        // Verificar coherencia de dirección
+        if (blueMarket === null && redMarket === null) {
+            resetFilters();
+            setSignalUI('none', 'SIN SEÑAL', 'No hay dirección clara en ningún grupo', true);
+            return;
+        }
+        if (blueMarket === null) {
+            resetFilters();
+            setSignalUI('none', 'SIN SEÑAL', 'Dígitos azules sin dirección clara (retroceso o repetición)', true);
+            return;
+        }
+        if (redMarket === null) {
+            resetFilters();
+            setSignalUI('none', 'SIN SEÑAL', 'Dígitos rojos sin dirección clara (retroceso o repetición)', true);
+            return;
+        }
+        if (blueMarket !== redMarket) {
+            resetFilters();
+            setSignalUI('none', 'CONFLICTO', `Azules: ${blueMarket} vs Rojos: ${redMarket}`, true);
+            return;
+        }
+
+        // Dirección confirmada — determinar tipo de operación
+        const isCall = blueMarket === 'alcista';
+        const proporcionOk = isCall ? esPatronCALL : esPatronPUT;
+
+        if (!proporcionOk) {
+            resetFilters();
+            setSignalUI('none', 'PROPORCIÓN CONFLICTO',
+                `Dirección ${blueMarket} pero proporción no coincide (R:${reds.length} A:${blues.length})`, true);
+            return;
+        }
+
+        // ── FILTROS DE CONFIRMACIÓN (3 nuevos) ───────────────────────────
+        // Mostrar sección de filtros
+        if (filtersSectionEl) filtersSectionEl.style.display = 'block';
+
+        // Para CALL: dominante=rojos (3), minoritario=azules (2)
+        // Para PUT:  dominante=azules (3), minoritario=rojos (2)
+        const dominantGroup  = isCall ? reds  : blues;
+        const minorityGroup  = isCall ? blues : reds;
+
+        const f1 = applyFilter1(isCall, dominantGroup);
+        const f2 = applyFilter2(isCall, minorityGroup);
+        const f3 = applyFilter3(isCall, dominantGroup);
+
+        const allFiltersPass = f1 && f2 && f3;
+        // ─────────────────────────────────────────────────────────────────
+
+        if (allFiltersPass) {
+            // Señal completamente validada (proporción + dirección + 3 filtros)
+            setSignalUI(isCall ? 'call' : 'put',
+                isCall ? '🟢 CALL — ALCISTA' : '🔴 PUT — BAJISTA',
+                `Proporción ${isCall ? '3R+2A' : '3A+2R'} ✓ | Dirección ✓ | Filtros F1+F2+F3 ✓`,
+                true, isCall ? 'CALL' : 'PUT');
+        } else {
+            // Señal bloqueada por uno o más filtros
+            const failed = [!f1 && 'F1', !f2 && 'F2', !f3 && 'F3'].filter(Boolean).join(', ');
+            setSignalUI('none', 'FILTROS NO SUPERADOS',
+                `Dirección ${blueMarket} ✓ | Proporción ✓ | Bloqueado por: ${failed}`, true);
+        }
+    }
+
+    function updateDirEl(el, marketDir, count) {
+        if (!el) return;
+        if (count < 2) {
+            el.textContent  = count === 0 ? '—' : 'Solo 1 dígito';
+            el.className    = 'analysis-direction neutral';
+            return;
+        }
+        if (marketDir === 'alcista') {
+            el.textContent = '▲ ALCISTA';
+            el.className   = 'analysis-direction bullish';
+        } else if (marketDir === 'bajista') {
+            el.textContent = '▼ BAJISTA';
+            el.className   = 'analysis-direction bearish';
+        } else {
+            el.textContent = '⚠ SIN DIRECCIÓN';
+            el.className   = 'analysis-direction neutral';
+        }
+    }
+
+    function setSignalUI(type, text, detail, addToHistory, tradeSignal) {
+        if (!strategySignalBox) return;
+
+        // Actualizar caja de señal
+        strategySignalBox.className = 'strategy-signal-box signal-' + type;
+
+        // Para PUT: agregar etiqueta informativa visible en pantalla
+        if (tradeSignal === 'PUT') {
+            if (signalTextEl)   signalTextEl.textContent   = text + '  — SOLO INFORMATIVA';
+            if (signalDetailEl) signalDetailEl.textContent = detail + ' · No se ejecuta operación';
+        } else {
+            if (signalTextEl)   signalTextEl.textContent   = text;
+            if (signalDetailEl) signalDetailEl.textContent = detail;
+        }
+
+        if (type === 'call') {
+            if (signalIconEl) signalIconEl.innerHTML = '<i class="fas fa-arrow-up"></i>';
+        } else if (type === 'put') {
+            if (signalIconEl) signalIconEl.innerHTML = '<i class="fas fa-eye"></i>';
+        } else {
+            if (signalIconEl) signalIconEl.innerHTML = '<i class="fas fa-minus-circle"></i>';
+        }
+
+        // Agregar al historial y contar (solo cuando el patrón está completo)
+        if (addToHistory && tradeSignal) {
+            if (tradeSignal === 'CALL') signalCalls++;
+            else if (tradeSignal === 'PUT') signalPuts++;
+
+            addSignalToHistory(type, text, detail);
+            updateStrategyStats();
+
+            // Resaltar botón correspondiente
+            highlightTradeButton(tradeSignal);
+
+            // Sonido de señal
+            playAlertSound('signal');
+            if (tradeSignal === 'CALL') {
+                showInternalNotification(
+                    '📊 Señal CALL — Ejecutando operación',
+                    `${text} — ${detail}`,
+                    'success'
+                );
+            } else {
+                showInternalNotification(
+                    '📊 Señal PUT detectada — Solo informativa',
+                    `${text} — ${detail} (no se opera)`,
+                    'error'
+                );
+            }
+
+            // ── SOLO CALL: ejecutar automáticamente si es CALL, solo mostrar si es PUT ──
+            if (!isTrading && running) {
+                if (tradeSignal === 'CALL') {
+                    strategyPaused = true;
+                    strategyBuffer = [];
+                    setStrategyStatusBar('paused', `⏳ OPERACIÓN CALL EN CURSO — Análisis pausado`);
+                    executeTrade('CALL');
+                } else if (tradeSignal === 'PUT') {
+                    // PUT detectado: mostrar en pantalla como información, NO operar
+                    showInternalNotification(
+                        '📊 Señal PUT detectada — Solo informativa',
+                        'El sistema opera únicamente CALL. Esta señal PUT no se ejecuta.',
+                        'warning'
+                    );
+                    // No se pausa ni se limpia el buffer — se sigue analizando
+                }
+            }
+        } else if (addToHistory && type === 'none') {
+            signalNone++;
+            updateStrategyStats();
+        }
+    }
+
+    function addSignalToHistory(type, text, detail) {
+        if (!signalsHistoryEl) return;
+        const item = document.createElement('div');
+        item.className = 'signal-history-item signal-hist-' + type;
+        const time = new Date().toLocaleTimeString();
+        item.innerHTML = `<span class="sig-time">${time}</span><span class="sig-label">${text}</span><span class="sig-detail">${detail}</span>`;
+        signalsHistoryEl.insertBefore(item, signalsHistoryEl.firstChild);
+        // Máximo 10 en historial
+        while (signalsHistoryEl.children.length > 10) {
+            signalsHistoryEl.removeChild(signalsHistoryEl.lastChild);
+        }
+    }
+
+    function updateStrategyStats() {
+        if (signalCallsEl) signalCallsEl.textContent = signalCalls;
+        if (signalPutsEl)  signalPutsEl.textContent  = signalPuts;
+        if (signalNoneEl)  signalNoneEl.textContent  = signalNone;
+    }
+
+    function highlightTradeButton(signal) {
+        const callBtn = document.querySelector('.btn-call');
+        const putBtn  = document.querySelector('.btn-put');
+        if (!callBtn || !putBtn) return;
+
+        if (signal === 'CALL') {
+            callBtn.classList.add('btn-signal-highlight');
+            putBtn.classList.remove('btn-signal-highlight');
+            setTimeout(() => callBtn.classList.remove('btn-signal-highlight'), 4000);
+        } else {
+            putBtn.classList.add('btn-signal-highlight');
+            callBtn.classList.remove('btn-signal-highlight');
+            setTimeout(() => putBtn.classList.remove('btn-signal-highlight'), 4000);
+        }
+    }
+
+    // Hook: se llama en cada nuevo dígito para alimentar la estrategia
+    function feedStrategyDigit(digitValue, isBlue) {
+        // Siempre acumular dígitos (para que el buffer esté listo al reanudar)
+        strategyBuffer.push({ value: digitValue, blue: isBlue });
+        if (strategyBuffer.length > 5) strategyBuffer.shift();
+
+        // Si hay operación activa, no analizar ni generar señales
+        if (strategyPaused) return;
+
+        runStrategyAnalysis();
+    }
+
+    function setStrategyStatusBar(state, message) {
+        if (!strategySignalBox) return;
+        if (state === 'paused') {
+            strategySignalBox.className = 'strategy-signal-box signal-paused';
+            if (signalIconEl)   signalIconEl.innerHTML    = '<i class="fas fa-pause-circle"></i>';
+            if (signalTextEl)   signalTextEl.textContent  = 'ANÁLISIS PAUSADO';
+            if (signalDetailEl) signalDetailEl.textContent = message || 'Esperando resultado de operación...';
+        } else if (state === 'resumed') {
+            strategySignalBox.className = 'strategy-signal-box signal-none';
+            if (signalIconEl)   signalIconEl.innerHTML    = '<i class="fas fa-search"></i>';
+            if (signalTextEl)   signalTextEl.textContent  = 'ANALIZANDO...';
+            if (signalDetailEl) signalDetailEl.textContent = message || 'Buscando nuevo patrón de 5 dígitos';
+            if (patternDigitsRow) patternDigitsRow.innerHTML = '<div class="pattern-placeholder">Esperando dígitos...</div>';
+            if (blueDigitsEl)  blueDigitsEl.textContent  = '-';
+            if (redDigitsEl)   redDigitsEl.textContent   = '-';
+            if (blueDirEl)     blueDirEl.textContent     = '—';
+            if (redDirEl)      redDirEl.textContent      = '—';
+            resetFilters();
+        }
+    }
+
     function updateConnectionStatus(text, color) {
-        if (statusText) {
-            statusText.textContent = text;
-            statusText.style.color = color;
-        }
-        
-        if (statusDot) {
-            statusDot.style.backgroundColor = color;
-        }
+        if (statusText) { statusText.textContent = text; statusText.style.color = color; }
+        if (statusDot)  statusDot.style.backgroundColor = color;
     }
-    
-    // ====================== SISTEMA DERIV AUTOTRADING CORREGIDO ======================
-    const DERIV_API_TOKEN = "sFYENWAb4mricfa";
-    const DURATION = 5;
-    
+
+    // ====================== DERIV API ======================
     window.operarAutomatico = function(signal, stake) {
-        console.log(`🔄 Iniciando operación manual para ${signal}...`);
-        
         if (!derivWs || derivWs.readyState !== WebSocket.OPEN) {
-            console.log("⚠️ API no lista - Intentando reconectar...");
             conectarDerivAPI();
             setTimeout(() => window.operarAutomatico(signal, stake), 3000);
             return;
         }
 
-        const contract_type = signal === "UP" ? "CALL" : "PUT";
-        const symbol_actual = document.getElementById("asset-selector").value || "R_10";
-
-        const request = {
+        const symbol = cachedAssetSelector ? cachedAssetSelector.value : 'R_10';
+        derivWs.send(JSON.stringify({
             buy: 1,
             price: stake,
             parameters: {
                 amount: stake,
-                basis: "stake",
-                contract_type: contract_type,
-                currency: "USD",
+                basis: 'stake',
+                contract_type: signal === 'UP' ? 'CALL' : 'PUT',
+                currency: 'USD',
                 duration: DURATION,
-                duration_unit: "t",
-                symbol: symbol_actual
+                duration_unit: 't',
+                symbol
             }
-        };
-
-        derivWs.send(JSON.stringify(request));
-        console.log(`📤 OPERACIÓN ENVIADA: ${contract_type} | Stake: $${stake.toFixed(2)} | Símbolo: ${symbol_actual} | Duración: ${DURATION}t`);
-        
-        // Configurar timeout para operaciones colgadas
-        setupTradeTimeout();
+        }));
     };
 
-    function validarResultadoContrato(contract_id, stake_inicial) {
-        console.log(`🔍 Monitoreando contrato: ${contract_id}`);
-        
-        const subscribeRequest = {
-            proposal_open_contract: 1,
-            contract_id: contract_id,
-            subscribe: 1
-        };
-        
-        derivWs.send(JSON.stringify(subscribeRequest));
-    }
-
     function conectarDerivAPI() {
-        derivWs = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=1089`);
+        if (!DERIV_API_TOKEN) return; // No conectar si no hay token
+
+        derivWs = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
         window.derivWs = derivWs;
 
         derivWs.onopen = () => {
-            console.log("🔄 Conectando a Deriv API...");
             derivWs.send(JSON.stringify({ authorize: DERIV_API_TOKEN }));
         };
 
@@ -1943,70 +2333,65 @@
             const data = JSON.parse(msg.data);
 
             if (data.authorize) {
-                console.log("✅ AUTORIZADO EN DERIV:", data.authorize.loginid);
                 derivWs.send(JSON.stringify({ balance: 1, subscribe: 1 }));
-                
-                if (data.balance) {
-                    balance = parseFloat(data.balance.balance);
-                    updateTradingDisplay();
-                    console.log(`💰 Balance real: $${balance.toFixed(2)}`);
-                }
             }
 
             if (data.buy && data.buy.contract_id) {
                 const contract_id = data.buy.contract_id;
-                const stake = parseFloat(data.buy.buy_price);
-                
-                currentContract = {
-                    contract_id: contract_id,
-                    stake: stake,
-                    timestamp: Date.now(),
-                    status: 'open'
-                };
-                
-                console.log(`🎉 COMPRA EXITOSA! ID: ${contract_id} | Stake: $${stake.toFixed(2)} USD`);
-                
+                const stake       = parseFloat(data.buy.buy_price);
+                currentContract   = { contract_id, stake, timestamp: Date.now(), status: 'open' };
                 balance -= stake;
                 updateTradingDisplay();
-                
-                setTimeout(() => validarResultadoContrato(contract_id, stake), 2000);
+                derivWs.send(JSON.stringify({ proposal_open_contract: 1, contract_id, subscribe: 1 }));
             }
 
             if (data.proposal_open_contract) {
                 const contract = data.proposal_open_contract;
-                
+
+                if (contract.contract_id === currentContract?.contract_id && !activeTrade && contract.entry_tick) {
+                    startTradeMonitorWithRealData(
+                        contract.contract_id,
+                        contract.contract_type,
+                        parseFloat(contract.entry_tick),
+                        parseFloat(contract.entry_tick_displayed),
+                        new Date(contract.entry_tick_time * 1000)
+                    );
+                }
+
+                if (contract.tick_stream && contract.tick_stream.length > 0 && activeTrade && activeTrade.id === contract.contract_id) {
+                    const ts = contract.tick_stream;
+                    contractTicks = [];
+                    for (let i = 0; i < ts.length; i++) {
+                        contractTicks.push({
+                            price: parseFloat(ts[i].tick),
+                            timestamp: ts[i].tick_time * 1000,
+                            tick_index: ts[i].tick_count || ts[i].tick_index || 1
+                        });
+                    }
+                    if (contractTicks.length > 0) updateMonitorWithRealData(contractTicks);
+                }
+
                 if (contract.is_sold) {
-                    const profit = parseFloat(contract.profit);
-                    const status = contract.status;
+                    const profit      = parseFloat(contract.profit);
+                    const exitTick    = parseFloat(contract.exit_tick);
                     const contract_id = contract.contract_id;
-                    
-                    console.log(`🎯 CONTRATO FINALIZADO - ID: ${contract_id} | Status: ${status} | Ganancia: $${profit.toFixed(2)}`);
-                    
-                    // Procesar resultado
-                    procesarResultadoTrading(profit);
-                    
-                    // Agregar al historial
-                    addOperationToHistory({
-                        id: contract_id,
-                        timestamp: new Date().toLocaleTimeString(),
-                        type: profit > 0 ? 'CALL' : 'PUT',
-                        stake: currentContract ? currentContract.stake : tradingStake,
-                        profit: profit,
-                        result: profit > 0 ? 'WIN' : 'LOSS',
-                        status: status
-                    });
-                    
-                    // Mostrar resultado
-                    mostrarResultadoOperacion(profit, status, contract_id);
-                    
-                    // Desuscribirse del contrato
-                    derivWs.send(JSON.stringify({
-                        proposal_open_contract: 0,
-                        contract_id: contract_id,
-                        subscribe: 0
-                    }));
-                    
-                    // IMPORTANTE: Limpiar el contrato actual
+
+                    if (activeTrade && activeTrade.id === contract_id) {
+                        activeTrade.currentPrice = exitTick;
+                        activeTrade.profitLoss   = profit;
+                        activeTrade.isWinning    = profit > 0;
+                        contractTicks.push({ price: exitTick, timestamp: Date.now(), tick_index: 5 });
+                        updateMonitorWithRealData(contractTicks);
+                    }
+
+                    // Diferir al siguiente ciclo para no bloquear el mensaje WS
+                    const savedStatus = contract.status;
+                    setTimeout(() => {
+                        procesarResultadoTrading(profit);
+                        mostrarResultadoOperacion(profit, savedStatus, contract_id);
+                    }, 0);
+
+                    derivWs.send(JSON.stringify({ proposal_open_contract: 0, contract_id, subscribe: 0 }));
                     currentContract = null;
                 }
             }
@@ -2014,146 +2399,30 @@
             if (data.balance) {
                 balance = parseFloat(data.balance.balance);
                 updateTradingDisplay();
-                console.log(`💰 Balance actualizado: $${balance.toFixed(2)}`);
             }
 
             if (data.error) {
-                console.error("❌ ERROR DERIV:", data.error);
-                
-                // Manejar diferentes tipos de errores
-                if (data.error.code === "ContractBuyValidation" || 
-                    data.error.code === "InvalidContract" ||
-                    data.error.code === "RateLimit") {
-                    
-                    console.error("❌ ERROR EN COMPRA:", data.error.message);
-                    
-                    // Restaurar el balance si había un contrato pendiente
-                    if (currentContract) {
-                        balance += currentContract.stake;
-                        console.log(`💰 Balance restaurado: $${balance.toFixed(2)}`);
-                    }
-                    
-                    // Resetear estado de trading
-                    resetTradingState();
-                    
-                    // Mostrar notificación de error
-                    showNotification(
-                        'Error en Operación',
-                        data.error.message || 'Error desconocido',
-                        'error'
-                    );
-                    
+                if (data.error.code === 'ContractBuyValidation' || data.error.code === 'InvalidContract') {
+                    if (currentContract) balance += currentContract.stake;
+                    isTrading = false;
+                    tradeStatusEl.textContent = 'ERROR';
+                    tradeStatusEl.style.color = '#e74c3c';
+                    stopTradeMonitor();
+                    setTimeout(() => { tradeStatusEl.textContent = 'LISTO'; tradeStatusEl.style.color = '#27ae60'; }, 3000);
+                    currentContract = null;
                     updateTradingDisplay();
                 }
             }
         };
 
-        derivWs.onerror = (err) => {
-            console.error("⚠️ Error WebSocket Deriv:", err);
-        };
+        derivWs.onerror = () => {};
 
         derivWs.onclose = () => {
-            console.log("🔌 Deriv API desconectada - Reconectando en 5s...");
-            
-            // Resetear estado si estaba operando
-            if (isTrading) {
-                console.warn("⚠️ Conexión perdida durante operación activa");
-                resetTradingState();
-            }
-            
             currentContract = null;
-            setTimeout(conectarDerivAPI, 5000);
+            if (DERIV_API_TOKEN) setTimeout(conectarDerivAPI, 5000);
         };
     }
 
-    function mostrarResultadoOperacion(profit, status, contract_id) {
-        const resultContent = document.getElementById('result-content');
-        if (!resultContent) return;
-        
-        const resultadoHTML = `
-            <div class="result-section" style="border: 2px solid ${profit > 0 ? '#27ae60' : '#e74c3c'}; border-radius: 8px; padding: 15px; margin-top: 8px; background: rgba(255, 255, 255, 0.04);">
-                <div class="result-section-title" style="color: ${profit > 0 ? '#27ae60' : '#e74c3c'}; font-size: 1.1rem; margin-bottom: 10px;">
-                    <i class="fas fa-${profit > 0 ? 'trophy' : 'times-circle'}"></i> 
-                    ${profit > 0 ? 'OPERACIÓN GANADORA ✅' : 'OPERACIÓN PERDEDORA ❌'}
-                </div>
-                <div class="info-line" style="display: flex; justify-content: space-between; margin: 8px 0; font-size: 0.9rem;">
-                    <span style="color: #95a5a6;">Contract ID:</span>
-                    <span style="color: white; font-family: monospace;">${contract_id}</span>
-                </div>
-                <div class="info-line" style="display: flex; justify-content: space-between; margin: 8px 0; font-size: 0.9rem;">
-                    <span style="color: #95a5a6;">Estado:</span>
-                    <span style="color: white;">${status}</span>
-                </div>
-                <div class="info-line" style="display: flex; justify-content: space-between; margin: 8px 0; font-size: 0.9rem;">
-                    <span style="color: #95a5a6;">Resultado:</span>
-                    <strong style="color: ${profit > 0 ? '#27ae60' : '#e74c3c'}; font-size: 1.2rem;">
-                        $${profit > 0 ? '+' : ''}${profit.toFixed(2)}
-                    </strong>
-                </div>
-                <div class="info-line" style="display: flex; justify-content: space-between; margin: 8px 0; font-size: 0.9rem;">
-                    <span style="color: #95a5a6;">Hora:</span>
-                    <span style="color: white;">${new Date().toLocaleTimeString()}</span>
-                </div>
-                <div class="info-line" style="display: flex; justify-content: space-between; margin: 8px 0; font-size: 0.9rem;">
-                    <span style="color: #95a5a6;">Nuevo Balance:</span>
-                    <strong style="color: #3498db; font-size: 1.1rem;">
-                        $${balance.toFixed(2)}
-                    </strong>
-                </div>
-            </div>
-        `;
-        
-        const existingContent = resultContent.innerHTML;
-        const newContent = resultadoHTML + existingContent;
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = newContent;
-        
-        const sections = tempDiv.querySelectorAll('.result-section');
-        if (sections.length > 5) {
-            for (let i = 5; i < sections.length; i++) {
-                sections[i].remove();
-            }
-        }
-        
-        resultContent.innerHTML = tempDiv.innerHTML;
-        document.getElementById('result-panel').style.display = 'block';
-        document.getElementById('overlay').style.display = 'block';
-        
-        console.log(`📈 Resultado mostrado: ${profit > 0 ? 'WIN' : 'LOSS'} $${profit.toFixed(2)}`);
-    }
-
-    // ====================== HISTORIAL DE OPERACIONES ======================
-    function addOperationToHistory(operationData) {
-        operationsHistory.unshift(operationData);
-        
-        if (operationsHistory.length > MAX_HISTORY) {
-            operationsHistory.pop();
-        }
-        
-        try {
-            localStorage.setItem('operationsHistory', JSON.stringify(operationsHistory));
-        } catch (e) {
-            console.log('No se pudo guardar en localStorage:', e);
-        }
-    }
-
-    function loadOperationsHistory() {
-        try {
-            const saved = localStorage.getItem('operationsHistory');
-            if (saved) {
-                operationsHistory = JSON.parse(saved);
-                console.log(`📚 Historial cargado: ${operationsHistory.length} operaciones`);
-            }
-        } catch (e) {
-            console.log('No se pudo cargar el historial:', e);
-        }
-    }
-    
-    // Event listener para actualizar stake cuando cambia el input
-    document.getElementById('trading-stake').addEventListener('input', function() {
-        tradingStake = parseFloat(this.value) || 1;
-        updateStakeDisplay();
-    });
     </script>
 </body>
 </html>
