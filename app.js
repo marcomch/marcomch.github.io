@@ -949,6 +949,23 @@ function procesarResultado(ganancia) {
     // Verificar límites de Stop Win / Stop Loss
     checkStopLimits();
 
+    // Si un límite fue disparado, NO continuar con el flujo normal
+    if (stopLimits.triggered) {
+        updateTradingDisplay();
+        if (el.winRate) el.winRate.textContent =
+            `${trading.totalTrades > 0 ? Math.round(trading.wins / trading.totalTrades * 100) : 0}%`;
+        if (ganancia > 0) {
+            notify('¡Operación Ganadora!', `+$${ganancia.toFixed(2)} | Balance: $${trading.balance.toFixed(2)}`, 'success');
+            playSound('win');
+        } else {
+            notify('Operación Perdedora', `-$${Math.abs(ganancia).toFixed(2)} | Balance: $${trading.balance.toFixed(2)}`, 'error');
+            playSound('loss');
+        }
+        el.tradeStatus.textContent = 'DETENIDO';
+        el.tradeStatus.style.color = '#e74c3c';
+        return;
+    }
+
     if (el.lastTrade) {
         el.lastTrade.innerHTML = ganancia > 0
             ? `<span style="color:#27ae60">CALL +$${ganancia.toFixed(2)}</span>`
@@ -1559,7 +1576,7 @@ function setSignalUI(type, text, detail, addToHistory, tradeSignal) {
             notifyInternal('📊 Señal PUT detectada — Solo informativa', `${text} — ${detail} (no se opera)`, 'error');
         }
 
-        if (!trading.isTrading && feed.running) {
+        if (!trading.isTrading && feed.running && !stopLimits.triggered) {
             if (tradeSignal === 'CALL') {
                 strategy.paused = true;
                 strategy.buffer = [];
