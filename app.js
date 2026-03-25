@@ -159,7 +159,6 @@ function cacheDOM() {
         'filter1-item', 'filter1-icon', 'filter1-desc',
         'filter2-item', 'filter2-icon', 'filter2-desc',
         'filter3-item', 'filter3-icon', 'filter3-desc',
-        'filter4-item', 'filter4-icon', 'filter4-desc',
     ];
     ids.forEach(id => {
         // Convierte 'some-id' → el.someId
@@ -942,8 +941,7 @@ function procesarResultado(ganancia) {
     trading.isTrading = false;
     stopTradeMonitor();
 
-    // BUG1 FIX: Se eliminó "trading.balance += ganancia" para evitar doble descuento.
-    // El balance real llega vía data.balance del WebSocket y se aplica en conectarDerivAPI().
+    trading.balance     += ganancia;
     trading.totalProfit += ganancia;
     trading.totalTrades++;
     ganancia > 0 ? trading.wins++ : trading.losses++;
@@ -1234,8 +1232,7 @@ function conectarDerivAPI() {
             const contractId = data.buy.contract_id;
             const stake      = parseFloat(data.buy.buy_price);
             trading.currentContract = { contractId, stake, timestamp: Date.now(), status: 'open' };
-            // BUG1 FIX: Se eliminó "trading.balance -= stake" para evitar doble descuento.
-            // El balance se actualiza únicamente desde data.balance (fuente oficial de Deriv).
+            trading.balance -= stake;
             updateTradingDisplay();
             trading.derivWs.send(JSON.stringify({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 }));
         }
@@ -1293,8 +1290,7 @@ function conectarDerivAPI() {
 
         if (data.error) {
             if (data.error.code === 'ContractBuyValidation' || data.error.code === 'InvalidContract') {
-                // BUG1 FIX: Se eliminó "trading.balance += stake" porque ya no se descuenta manualmente.
-                // El balance correcto llegará vía data.balance desde Deriv.
+                if (trading.currentContract) trading.balance += trading.currentContract.stake;
                 trading.isTrading = false;
                 el.tradeStatus.textContent = 'ERROR';
                 el.tradeStatus.style.color = '#e74c3c';
@@ -1416,15 +1412,14 @@ function runStrategyAnalysis() {
     const f1 = applyFilter1(isCall, dominantGroup);
     const f2 = applyFilter2(isCall, minorityGroup);
     const f3 = applyFilter3(isCall, dominantGroup);
-    const f4 = applyFilter4(buf);
 
-    if (f1 && f2 && f3 && f4) {
+    if (f1 && f2 && f3) {
         setSignalUI(isCall ? 'call' : 'put',
             isCall ? '🟢 CALL — ALCISTA' : '🔴 PUT — BAJISTA',
             `Proporción ${isCall ? '3R+2A' : '3A+2R'} ✓ | Dirección ✓ | Filtros F1+F2+F3 ✓`,
             true, isCall ? 'CALL' : 'PUT');
     } else {
-        const failed = [!f1 && 'F1', !f2 && 'F2', !f3 && 'F3', !f4 && 'F4'].filter(Boolean).join(', ');
+        const failed = [!f1 && 'F1', !f2 && 'F2', !f3 && 'F3'].filter(Boolean).join(', ');
         setSignalUI('none', 'FILTROS NO SUPERADOS',
             `Dirección ${blueMarket} ✓ | Proporción ✓ | Bloqueado por: ${failed}`, true);
     }
@@ -1511,20 +1506,6 @@ function applyFilter3(isCall, dominantGroup) {
     return pass;
 }
 
-/**
- * Filtro 4 — Sin ceros en el patrón.
- * Si cualquier dígito del patrón (azul o rojo) es 0, se descarta la operación.
- */
-function applyFilter4(buf) {
-    const zeros = buf.filter(d => d.value === 0);
-    const pass  = zeros.length === 0;
-    const msg   = pass
-        ? 'Ningún dígito es 0 ✓ Patrón limpio'
-        : `Se detectó ${zeros.length} cero(s) en el patrón ✗ Operación descartada`;
-    setFilterUI('filter4', pass, msg);
-    return pass;
-}
-
 function setFilterUI(filterKey, pass, msg) {
     const itemEl = el[filterKey + 'Item'];
     const iconEl = el[filterKey + 'Icon'];
@@ -1544,7 +1525,6 @@ function resetFilters() {
     setFilterUI('filter1', null, '—');
     setFilterUI('filter2', null, '—');
     setFilterUI('filter3', null, '—');
-    setFilterUI('filter4', null, '—');
 }
 
 // ====================== UI DE SEÑAL ======================
@@ -1567,13 +1547,18 @@ function setSignalUI(type, text, detail, addToHistory, tradeSignal) {
 
     box.className = 'strategy-signal-box signal-' + type;
 
-    if (el.signalText)   el.signalText.textContent   = text;
-    if (el.signalDetail) el.signalDetail.textContent = detail;
+    if (tradeSignal === 'PUT') {
+        if (el.signalText)   el.signalText.textContent   = text + '  — SOLO INFORMATIVA';
+        if (el.signalDetail) el.signalDetail.textContent = detail + ' · No se ejecuta operación';
+    } else {
+        if (el.signalText)   el.signalText.textContent   = text;
+        if (el.signalDetail) el.signalDetail.textContent = detail;
+    }
 
     if (el.signalIcon) {
         el.signalIcon.innerHTML =
             type === 'call' ? '<i class="fas fa-arrow-up"></i>'      :
-            type === 'put'  ? '<i class="fas fa-arrow-down"></i>'     :
+            type === 'put'  ? '<i class="fas fa-eye"></i>'            :
                               '<i class="fas fa-minus-circle"></i>';
     }
 
@@ -1588,7 +1573,7 @@ function setSignalUI(type, text, detail, addToHistory, tradeSignal) {
         if (tradeSignal === 'CALL') {
             notifyInternal('📊 Señal CALL — Ejecutando operación', `${text} — ${detail}`, 'success');
         } else {
-            notifyInternal('📊 Señal PUT — Ejecutando operación', `${text} — ${detail}`, 'error');
+            notifyInternal('📊 Señal PUT detectada — Solo informativa', `${text} — ${detail} (no se opera)`, 'error');
         }
 
         if (!trading.isTrading && feed.running && !stopLimits.triggered) {
@@ -1597,12 +1582,8 @@ function setSignalUI(type, text, detail, addToHistory, tradeSignal) {
                 strategy.buffer = [];
                 setStrategyStatusBar('paused', '⏳ OPERACIÓN CALL EN CURSO — Análisis pausado');
                 window.executeTrade('CALL');
-            } else if (tradeSignal === 'PUT') {
-                strategy.paused = true;
-                strategy.buffer = [];
-                setStrategyStatusBar('paused', '⏳ OPERACIÓN PUT EN CURSO — Análisis pausado');
-                window.executeTrade('PUT');
             }
+            // PUT: solo informativa, no se opera ni se pausa
         }
     } else if (addToHistory && type === 'none') {
         strategy.signalNone++;
