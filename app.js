@@ -1547,18 +1547,13 @@ function setSignalUI(type, text, detail, addToHistory, tradeSignal) {
 
     box.className = 'strategy-signal-box signal-' + type;
 
-    if (tradeSignal === 'PUT') {
-        if (el.signalText)   el.signalText.textContent   = text + '  — SOLO INFORMATIVA';
-        if (el.signalDetail) el.signalDetail.textContent = detail + ' · No se ejecuta operación';
-    } else {
-        if (el.signalText)   el.signalText.textContent   = text;
-        if (el.signalDetail) el.signalDetail.textContent = detail;
-    }
+    if (el.signalText)   el.signalText.textContent   = text;
+    if (el.signalDetail) el.signalDetail.textContent = detail;
 
     if (el.signalIcon) {
         el.signalIcon.innerHTML =
             type === 'call' ? '<i class="fas fa-arrow-up"></i>'      :
-            type === 'put'  ? '<i class="fas fa-eye"></i>'            :
+            type === 'put'  ? '<i class="fas fa-arrow-down"></i>'     :
                               '<i class="fas fa-minus-circle"></i>';
     }
 
@@ -1573,7 +1568,7 @@ function setSignalUI(type, text, detail, addToHistory, tradeSignal) {
         if (tradeSignal === 'CALL') {
             notifyInternal('📊 Señal CALL — Ejecutando operación', `${text} — ${detail}`, 'success');
         } else {
-            notifyInternal('📊 Señal PUT detectada — Solo informativa', `${text} — ${detail} (no se opera)`, 'error');
+            notifyInternal('📊 Señal PUT — Ejecutando operación', `${text} — ${detail}`, 'error');
         }
 
         if (!trading.isTrading && feed.running && !stopLimits.triggered) {
@@ -1582,8 +1577,12 @@ function setSignalUI(type, text, detail, addToHistory, tradeSignal) {
                 strategy.buffer = [];
                 setStrategyStatusBar('paused', '⏳ OPERACIÓN CALL EN CURSO — Análisis pausado');
                 window.executeTrade('CALL');
+            } else if (tradeSignal === 'PUT') {
+                strategy.paused = true;
+                strategy.buffer = [];
+                setStrategyStatusBar('paused', '⏳ OPERACIÓN PUT EN CURSO — Análisis pausado');
+                window.executeTrade('PUT');
             }
-            // PUT: solo informativa, no se opera ni se pausa
         }
     } else if (addToHistory && type === 'none') {
         strategy.signalNone++;
