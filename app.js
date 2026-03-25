@@ -159,6 +159,7 @@ function cacheDOM() {
         'filter1-item', 'filter1-icon', 'filter1-desc',
         'filter2-item', 'filter2-icon', 'filter2-desc',
         'filter3-item', 'filter3-icon', 'filter3-desc',
+        'filter4-item', 'filter4-icon', 'filter4-desc',
     ];
     ids.forEach(id => {
         // Convierte 'some-id' → el.someId
@@ -1412,14 +1413,15 @@ function runStrategyAnalysis() {
     const f1 = applyFilter1(isCall, dominantGroup);
     const f2 = applyFilter2(isCall, minorityGroup);
     const f3 = applyFilter3(isCall, dominantGroup);
+    const f4 = applyFilter4(buf);
 
-    if (f1 && f2 && f3) {
+    if (f1 && f2 && f3 && f4) {
         setSignalUI(isCall ? 'call' : 'put',
             isCall ? '🟢 CALL — ALCISTA' : '🔴 PUT — BAJISTA',
             `Proporción ${isCall ? '3R+2A' : '3A+2R'} ✓ | Dirección ✓ | Filtros F1+F2+F3 ✓`,
             true, isCall ? 'CALL' : 'PUT');
     } else {
-        const failed = [!f1 && 'F1', !f2 && 'F2', !f3 && 'F3'].filter(Boolean).join(', ');
+        const failed = [!f1 && 'F1', !f2 && 'F2', !f3 && 'F3', !f4 && 'F4'].filter(Boolean).join(', ');
         setSignalUI('none', 'FILTROS NO SUPERADOS',
             `Dirección ${blueMarket} ✓ | Proporción ✓ | Bloqueado por: ${failed}`, true);
     }
@@ -1506,6 +1508,20 @@ function applyFilter3(isCall, dominantGroup) {
     return pass;
 }
 
+/**
+ * Filtro 4 — Sin ceros en el patrón.
+ * Si cualquier dígito del patrón (azul o rojo) es 0, se descarta la operación.
+ */
+function applyFilter4(buf) {
+    const zeros = buf.filter(d => d.value === 0);
+    const pass  = zeros.length === 0;
+    const msg   = pass
+        ? 'Ningún dígito es 0 ✓ Patrón limpio'
+        : `Se detectó ${zeros.length} cero(s) en el patrón ✗ Operación descartada`;
+    setFilterUI('filter4', pass, msg);
+    return pass;
+}
+
 function setFilterUI(filterKey, pass, msg) {
     const itemEl = el[filterKey + 'Item'];
     const iconEl = el[filterKey + 'Icon'];
@@ -1525,6 +1541,7 @@ function resetFilters() {
     setFilterUI('filter1', null, '—');
     setFilterUI('filter2', null, '—');
     setFilterUI('filter3', null, '—');
+    setFilterUI('filter4', null, '—');
 }
 
 // ====================== UI DE SEÑAL ======================
