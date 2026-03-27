@@ -160,6 +160,7 @@ function cacheDOM() {
         'filter2-item', 'filter2-icon', 'filter2-desc',
         'filter3-item', 'filter3-icon', 'filter3-desc',
         'filter4-item', 'filter4-icon', 'filter4-desc',
+        'filter5-item', 'filter5-icon', 'filter5-desc',
     ];
     ids.forEach(id => {
         // Convierte 'some-id' → el.someId
@@ -1410,18 +1411,22 @@ function runStrategyAnalysis() {
     const dominantGroup = isCall ? reds  : blues;
     const minorityGroup = isCall ? blues : reds;
 
+    // Rojos en orden de aparición en el buffer (para Filtro 5)
+    const redsInOrder = buf.filter(d => !d.blue);
+
     const f1 = applyFilter1(isCall, dominantGroup);
     const f2 = applyFilter2(isCall, minorityGroup);
     const f3 = applyFilter3(isCall, dominantGroup);
     const f4 = applyFilter4(buf);
+    const f5 = isCall ? applyFilter5(redsInOrder) : (setFilterUI('filter5', null, 'F5 — Solo aplica en CALL (3 rojos)'), true);
 
-    if (f1 && f2 && f3 && f4) {
+    if (f1 && f2 && f3 && f4 && f5) {
         setSignalUI(isCall ? 'call' : 'put',
             isCall ? '🟢 CALL — ALCISTA' : '🔴 PUT — BAJISTA',
-            `Proporción ${isCall ? '3R+2A' : '3A+2R'} ✓ | Dirección ✓ | Filtros F1+F2+F3+F4 ✓`,
+            `Proporción ${isCall ? '3R+2A' : '3A+2R'} ✓ | Dirección ✓ | Filtros F1+F2+F3+F4+F5 ✓`,
             true, isCall ? 'CALL' : 'PUT');
     } else {
-        const failed = [!f1 && 'F1', !f2 && 'F2', !f3 && 'F3', !f4 && 'F4'].filter(Boolean).join(', ');
+        const failed = [!f1 && 'F1', !f2 && 'F2', !f3 && 'F3', !f4 && 'F4', !f5 && 'F5'].filter(Boolean).join(', ');
         setSignalUI('none', 'FILTROS NO SUPERADOS',
             `Dirección ${blueMarket} ✓ | Proporción ✓ | Bloqueado por: ${failed}`, true);
     }
@@ -1523,6 +1528,33 @@ function applyFilter4(buf) {
     return pass;
 }
 
+/**
+ * Filtro 5 — Agotamiento por pasos en los dígitos rojos.
+ * Se toman los 3 dígitos rojos del patrón (en orden de aparición).
+ * Paso 1 = rojo[0] - rojo[1]
+ * Paso 2 = rojo[1] - rojo[2]
+ * Condición: Paso 2 < Paso 1  →  agotamiento confirmado.
+ * Si Paso 2 >= Paso 1 → no hay agotamiento, no se opera.
+ */
+function applyFilter5(reds) {
+    // reds es el array de dígitos rojos en orden de aparición dentro del patrón
+    if (reds.length !== 3) {
+        setFilterUI('filter5', null, 'F5 no aplica (se necesitan exactamente 3 rojos)');
+        return true; // si no hay 3 rojos (caso PUT), no bloquear
+    }
+    const r0 = reds[0].value;
+    const r1 = reds[1].value;
+    const r2 = reds[2].value;
+    const paso1 = r0 - r1;
+    const paso2 = r1 - r2;
+    const pass  = paso2 < paso1;
+    const msg   = pass
+        ? `Rojos: ${r0}→${r1}→${r2} | Paso1=${paso1} Paso2=${paso2} → ${paso2}<${paso1} ✓ Agotamiento confirmado`
+        : `Rojos: ${r0}→${r1}→${r2} | Paso1=${paso1} Paso2=${paso2} → ${paso2}≥${paso1} ✗ Sin agotamiento`;
+    setFilterUI('filter5', pass, msg);
+    return pass;
+}
+
 function setFilterUI(filterKey, pass, msg) {
     const itemEl = el[filterKey + 'Item'];
     const iconEl = el[filterKey + 'Icon'];
@@ -1543,6 +1575,7 @@ function resetFilters() {
     setFilterUI('filter2', null, '—');
     setFilterUI('filter3', null, '—');
     setFilterUI('filter4', null, '—');
+    setFilterUI('filter5', null, '—');
 }
 
 // ====================== UI DE SEÑAL ======================
