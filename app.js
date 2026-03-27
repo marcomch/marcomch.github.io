@@ -161,6 +161,7 @@ function cacheDOM() {
         'filter3-item', 'filter3-icon', 'filter3-desc',
         'filter4-item', 'filter4-icon', 'filter4-desc',
         'filter5-item', 'filter5-icon', 'filter5-desc',
+        'filter6-item', 'filter6-icon', 'filter6-desc',
     ];
     ids.forEach(id => {
         // Convierte 'some-id' → el.someId
@@ -943,7 +944,8 @@ function procesarResultado(ganancia) {
     trading.isTrading = false;
     stopTradeMonitor();
 
-    trading.balance     += ganancia;
+    // El balance real es actualizado por el evento data.balance de la API de Deriv.
+    // NO se ajusta manualmente aquí para evitar doble conteo.
     trading.totalProfit += ganancia;
     trading.totalTrades++;
     ganancia > 0 ? trading.wins++ : trading.losses++;
@@ -1234,7 +1236,7 @@ function conectarDerivAPI() {
             const contractId = data.buy.contract_id;
             const stake      = parseFloat(data.buy.buy_price);
             trading.currentContract = { contractId, stake, timestamp: Date.now(), status: 'open' };
-            trading.balance -= stake;
+            // El balance es actualizado por el evento data.balance de la API; no se ajusta manualmente.
             updateTradingDisplay();
             trading.derivWs.send(JSON.stringify({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 }));
         }
@@ -1292,7 +1294,7 @@ function conectarDerivAPI() {
 
         if (data.error) {
             if (data.error.code === 'ContractBuyValidation' || data.error.code === 'InvalidContract') {
-                if (trading.currentContract) trading.balance += trading.currentContract.stake;
+                // El balance es manejado por la API; no se ajusta manualmente.
                 trading.isTrading = false;
                 el.tradeStatus.textContent = 'ERROR';
                 el.tradeStatus.style.color = '#e74c3c';
@@ -1419,14 +1421,15 @@ function runStrategyAnalysis() {
     const f3 = applyFilter3(isCall, dominantGroup);
     const f4 = applyFilter4(buf);
     const f5 = isCall ? applyFilter5(redsInOrder) : (setFilterUI('filter5', null, 'F5 — Solo aplica en CALL (3 rojos)'), true);
+    const f6 = applyFilter6(isCall, blues, reds);
 
-    if (f1 && f2 && f3 && f4 && f5) {
+    if (f1 && f2 && f3 && f4 && f5 && f6) {
         setSignalUI(isCall ? 'call' : 'put',
             isCall ? '🟢 CALL — ALCISTA' : '🔴 PUT — BAJISTA',
-            `Proporción ${isCall ? '3R+2A' : '3A+2R'} ✓ | Dirección ✓ | Filtros F1+F2+F3+F4+F5 ✓`,
+            `Proporción ${isCall ? '3R+2A' : '3A+2R'} ✓ | Dirección ✓ | Filtros F1+F2+F3+F4+F5+F6 ✓`,
             true, isCall ? 'CALL' : 'PUT');
     } else {
-        const failed = [!f1 && 'F1', !f2 && 'F2', !f3 && 'F3', !f4 && 'F4', !f5 && 'F5'].filter(Boolean).join(', ');
+        const failed = [!f1 && 'F1', !f2 && 'F2', !f3 && 'F3', !f4 && 'F4', !f5 && 'F5', !f6 && 'F6'].filter(Boolean).join(', ');
         setSignalUI('none', 'FILTROS NO SUPERADOS',
             `Dirección ${blueMarket} ✓ | Proporción ✓ | Bloqueado por: ${failed}`, true);
     }
@@ -1555,6 +1558,23 @@ function applyFilter5(reds) {
     return pass;
 }
 
+/**
+ * Filtro 6 — Sin dígito 9 en el grupo minoritario de la señal.
+ * CALL (azules = minoría): si algún dígito azul es 9 → no se opera.
+ * PUT  (rojos  = minoría): si algún dígito rojo  es 9 → no se opera.
+ */
+function applyFilter6(isCall, blues, reds) {
+    const group     = isCall ? blues : reds;
+    const colorName = isCall ? 'azul' : 'rojo';
+    const hasNine   = group.some(d => d.value === 9);
+    const pass      = !hasNine;
+    const msg       = pass
+        ? `Ningún dígito ${colorName} es 9 ✓ Patrón válido`
+        : `Dígito 9 detectado en dígitos ${colorName}s ✗ Señal anulada`;
+    setFilterUI('filter6', pass, msg);
+    return pass;
+}
+
 function setFilterUI(filterKey, pass, msg) {
     const itemEl = el[filterKey + 'Item'];
     const iconEl = el[filterKey + 'Icon'];
@@ -1576,6 +1596,7 @@ function resetFilters() {
     setFilterUI('filter3', null, '—');
     setFilterUI('filter4', null, '—');
     setFilterUI('filter5', null, '—');
+    setFilterUI('filter6', null, '—');
 }
 
 // ====================== UI DE SEÑAL ======================
