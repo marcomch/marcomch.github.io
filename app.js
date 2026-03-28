@@ -1413,14 +1413,15 @@ function runStrategyAnalysis() {
     const dominantGroup = isCall ? reds  : blues;
     const minorityGroup = isCall ? blues : reds;
 
-    // Rojos en orden de aparición en el buffer (para Filtro 5)
-    const redsInOrder = buf.filter(d => !d.blue);
+    // Rojos/Azules en orden de aparición en el buffer (para Filtro 5)
+    const redsInOrder  = buf.filter(d => !d.blue);
+    const bluesInOrder = buf.filter(d =>  d.blue);
 
     const f1 = applyFilter1(isCall, dominantGroup);
     const f2 = applyFilter2(isCall, minorityGroup);
     const f3 = applyFilter3(isCall, dominantGroup);
     const f4 = applyFilter4(buf);
-    const f5 = isCall ? applyFilter5(redsInOrder) : (setFilterUI('filter5', null, 'F5 — Solo aplica en CALL (3 rojos)'), true);
+    const f5 = isCall ? applyFilter5(redsInOrder, true) : applyFilter5(bluesInOrder, false);
     const f6 = applyFilter6(isCall, blues, reds);
 
     if (f1 && f2 && f3 && f4 && f5 && f6) {
@@ -1532,28 +1533,31 @@ function applyFilter4(buf) {
 }
 
 /**
- * Filtro 5 — Agotamiento por pasos en los dígitos rojos.
- * Se toman los 3 dígitos rojos del patrón (en orden de aparición).
- * Paso 1 = rojo[0] - rojo[1]
- * Paso 2 = rojo[1] - rojo[2]
- * Condición: Paso 2 < Paso 1  →  agotamiento confirmado.
- * Si Paso 2 >= Paso 1 → no hay agotamiento, no se opera.
+ * Filtro 5 — Agotamiento por pasos en el grupo dominante.
+ * CALL: se analizan los 3 dígitos rojos en orden de aparición.
+ *   Paso 1 = rojo[0] - rojo[1]
+ *   Paso 2 = rojo[1] - rojo[2]
+ *   Condición: Paso 2 < Paso 1  →  agotamiento bajista confirmado.
+ * PUT: misma lógica pero sobre los 3 dígitos azules en orden de aparición.
+ *   Paso 1 = azul[0] - azul[1]
+ *   Paso 2 = azul[1] - azul[2]
+ *   Condición: Paso 2 < Paso 1  →  agotamiento alcista confirmado.
  */
-function applyFilter5(reds) {
-    // reds es el array de dígitos rojos en orden de aparición dentro del patrón
-    if (reds.length !== 3) {
-        setFilterUI('filter5', null, 'F5 no aplica (se necesitan exactamente 3 rojos)');
-        return true; // si no hay 3 rojos (caso PUT), no bloquear
+function applyFilter5(dominantGroup, isCall) {
+    const colorName = isCall ? 'Rojos' : 'Azules';
+    if (dominantGroup.length !== 3) {
+        setFilterUI('filter5', null, `F5 no aplica (se necesitan exactamente 3 ${colorName.toLowerCase()})`);
+        return true;
     }
-    const r0 = reds[0].value;
-    const r1 = reds[1].value;
-    const r2 = reds[2].value;
-    const paso1 = r0 - r1;
-    const paso2 = r1 - r2;
+    const d0 = dominantGroup[0].value;
+    const d1 = dominantGroup[1].value;
+    const d2 = dominantGroup[2].value;
+    const paso1 = d0 - d1;
+    const paso2 = d1 - d2;
     const pass  = paso2 < paso1;
     const msg   = pass
-        ? `Rojos: ${r0}→${r1}→${r2} | Paso1=${paso1} Paso2=${paso2} → ${paso2}<${paso1} ✓ Agotamiento confirmado`
-        : `Rojos: ${r0}→${r1}→${r2} | Paso1=${paso1} Paso2=${paso2} → ${paso2}≥${paso1} ✗ Sin agotamiento`;
+        ? `${colorName}: ${d0}→${d1}→${d2} | Paso1=${paso1} Paso2=${paso2} → ${paso2}<${paso1} ✓ Agotamiento confirmado`
+        : `${colorName}: ${d0}→${d1}→${d2} | Paso1=${paso1} Paso2=${paso2} → ${paso2}≥${paso1} ✗ Sin agotamiento`;
     setFilterUI('filter5', pass, msg);
     return pass;
 }
@@ -1620,8 +1624,8 @@ function setSignalUI(type, text, detail, addToHistory, tradeSignal) {
     box.className = 'strategy-signal-box signal-' + type;
 
     if (tradeSignal === 'PUT') {
-        if (el.signalText)   el.signalText.textContent   = text + '  — SOLO INFORMATIVA';
-        if (el.signalDetail) el.signalDetail.textContent = detail + ' · No se ejecuta operación';
+        if (el.signalText)   el.signalText.textContent   = text;
+        if (el.signalDetail) el.signalDetail.textContent = detail;
     } else {
         if (el.signalText)   el.signalText.textContent   = text;
         if (el.signalDetail) el.signalDetail.textContent = detail;
@@ -1629,8 +1633,8 @@ function setSignalUI(type, text, detail, addToHistory, tradeSignal) {
 
     if (el.signalIcon) {
         el.signalIcon.innerHTML =
-            type === 'call' ? '<i class="fas fa-arrow-up"></i>'      :
-            type === 'put'  ? '<i class="fas fa-eye"></i>'            :
+            type === 'call' ? '<i class="fas fa-arrow-up"></i>'   :
+            type === 'put'  ? '<i class="fas fa-arrow-down"></i>' :
                               '<i class="fas fa-minus-circle"></i>';
     }
 
@@ -1645,7 +1649,7 @@ function setSignalUI(type, text, detail, addToHistory, tradeSignal) {
         if (tradeSignal === 'CALL') {
             notifyInternal('📊 Señal CALL — Ejecutando operación', `${text} — ${detail}`, 'success');
         } else {
-            notifyInternal('📊 Señal PUT detectada — Solo informativa', `${text} — ${detail} (no se opera)`, 'error');
+            notifyInternal('📊 Señal PUT — Ejecutando operación', `${text} — ${detail}`, 'error');
         }
 
         if (!trading.isTrading && feed.running && !stopLimits.triggered) {
@@ -1654,8 +1658,12 @@ function setSignalUI(type, text, detail, addToHistory, tradeSignal) {
                 strategy.buffer = [];
                 setStrategyStatusBar('paused', '⏳ OPERACIÓN CALL EN CURSO — Análisis pausado');
                 window.executeTrade('CALL');
+            } else if (tradeSignal === 'PUT') {
+                strategy.paused = true;
+                strategy.buffer = [];
+                setStrategyStatusBar('paused', '⏳ OPERACIÓN PUT EN CURSO — Análisis pausado');
+                window.executeTrade('PUT');
             }
-            // PUT: solo informativa, no se opera ni se pausa
         }
     } else if (addToHistory && type === 'none') {
         strategy.signalNone++;
