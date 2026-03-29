@@ -3,576 +3,535 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Trading Manual - Volatility Digits</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
+    <title>Trading Estrategia - Volatility Digits</title>
 </head>
 <body>
 
-<!-- ====================== MODAL DE TOKEN ====================== -->
-<div class="token-modal-overlay" id="token-modal-overlay">
-    <div class="token-modal">
-        <div class="token-modal-logo">
-            <i class="fas fa-chart-line"></i>
-            <span>TRADING MANUAL</span>
-        </div>
-        <div class="token-modal-subtitle">Volatility Digits · Deriv API</div>
-
-        <div class="token-field-label">
-            <i class="fas fa-key"></i>
-            <span>Token de API de Deriv</span>
-        </div>
-
-        <div class="token-input-wrapper">
-            <input type="password" id="token-input" class="token-input"
-                   placeholder="Pega aquí tu token de Deriv..."
-                   autocomplete="off" spellcheck="false">
-            <button class="toggle-token-visibility" id="toggle-token-btn" title="Mostrar/Ocultar token">
-                <i class="fas fa-eye" id="toggle-token-icon"></i>
-            </button>
-        </div>
-
-        <div class="token-help">
-            <i class="fas fa-info-circle"></i>
-            <span>
-                Obtén tu token en
-                <a href="https://app.deriv.com/account/api-token" target="_blank" rel="noopener">
-                    app.deriv.com/account/api-token
-                </a>.
-                Necesitas permisos de <strong>Read</strong> y <strong>Trade</strong>.
-                El token se guarda localmente en tu navegador.
-            </span>
-        </div>
-
-        <button class="btn-connect-token" id="btn-connect-token" onclick="conectarConToken()">
-            <i class="fas fa-plug"></i> Conectar
-        </button>
-
-        <div class="token-error-msg" id="token-error-msg"></div>
-    </div>
-</div>
-
-<!-- ====================== OVERLAY MODALES ====================== -->
-<div class="overlay" id="overlay" onclick="closeAllModals()"></div>
-
-<!-- ====================== MODAL RESULTADO ====================== -->
-<div class="modal result-panel" id="result-panel">
-    <div class="modal-header">
-        <div class="modal-title">
-            <i class="fas fa-chart-line"></i>
-            <span>RESULTADO DE OPERACIÓN</span>
-        </div>
-        <div class="close-modal" onclick="closeResultPanel()">
-            <i class="fas fa-times"></i>
-        </div>
-    </div>
-    <div class="modal-content" id="result-content"></div>
-</div>
-
-<!-- ====================== NOTIFICACIONES ====================== -->
-<div class="notification-container" id="notification-container"></div>
-
-<!-- ====================== HEADER ====================== -->
-<header class="main-header">
-    <div class="logo-section">
-        <div class="logo">
-            <i class="fas fa-chart-line"></i>
-            <span>TRADING MANUAL</span>
-        </div>
-        <div class="connection-status">
-            <div class="status-dot" id="status-dot"></div>
-            <span id="status-text">Desconectado</span>
-        </div>
-    </div>
-
-    <div class="price-display-section">
-        <div class="current-price-container">
-            <div class="price-label">PRECIO ACTUAL</div>
-            <div class="price-header-container">
-                <div class="current-price-wrapper">
-                    <div class="current-price" id="price">0000.000</div>
-                    <div id="price-level-indicator" class="price-level-indicator level-mid">MEDIO</div>
-                </div>
-            </div>
-            <div class="level-history-container" id="level-history"></div>
-        </div>
-        <div class="digit-display">
-            <div class="digit-label">DÍGITO ACTUAL</div>
-            <div class="current-digit" id="current-digit">-</div>
-        </div>
-    </div>
-
-    <div class="header-controls">
-        <div class="token-badge hidden" id="token-badge" onclick="cambiarToken()" title="Click para cambiar token">
-            <i class="fas fa-key"></i>
-            <span id="token-badge-text">Token: ****</span>
-        </div>
-
-        <select id="asset-selector" class="asset-selector">
-            <option value="R_100">Volatility 100 Index (R_100)</option>
-            <option value="R_10" selected>Volatility 10 Index (R_10)</option>
-            <option value="R_25">Volatility 25 Index (R_25)</option>
-            <option value="R_50">Volatility 50 Index (R_50)</option>
-            <option value="R_75">Volatility 75 Index (R_75)</option>
-            <option value="RDBEAR">Bear Market (RDBEAR)</option>
-            <option value="RDBULL">Bull Market (RDBULL)</option>
-            <option value="frxEURUSD">Forex EUR/USD</option>
-            <option value="frxEURJPY">Forex EUR/JPY</option>
-        </select>
-
-        <button onclick="startFeed()" class="btn-start">
-            <i class="fas fa-play"></i> Conectar
-        </button>
-        <button onclick="stopFeed()" class="btn-stop">
-            <i class="fas fa-stop"></i> Desconectar
-        </button>
-    </div>
-</header>
-
-<!-- ====================== CONTENEDOR PRINCIPAL ====================== -->
-<div class="main-container">
-
-    <!-- PANEL 1: GRÁFICO DE PRECIOS -->
-    <div class="panel chart-price-panel">
-        <div class="panel-header">
-            <div class="panel-title">
-                <i class="fas fa-chart-bar"></i>
-                <span>GRÁFICO DE PRECIOS</span>
-            </div>
-            <div class="panel-controls">
-                <button onclick="clearPriceChart()" class="btn-clear">
-                    <i class="fas fa-eraser"></i> Limpiar
-                </button>
-            </div>
-        </div>
-
-        <div class="price-chart-container">
-            <div id="priceChartContainer" style="height:100%;width:100%;"></div>
-        </div>
-
-        <div class="level-info-panel" id="level-info-panel">
-            <div class="level-info-row">
-                <span class="level-info-label">Nivel Actual:</span>
-                <span class="level-info-value" id="current-level-display">MEDIO</span>
-            </div>
-            <div class="level-info-row">
-                <span class="level-info-label">Precio Máximo:</span>
-                <span class="level-info-value" id="max-price-display">-</span>
-            </div>
-            <div class="level-info-row">
-                <span class="level-info-label">Precio Mínimo:</span>
-                <span class="level-info-value" id="min-price-display">-</span>
-            </div>
-            <div class="level-info-row">
-                <span class="level-info-label">Dígitos Verdes:</span>
-                <span class="level-info-value" id="green-digits-count">0</span>
-            </div>
-            <div class="level-info-row">
-                <span class="level-info-label">Último Máximo:</span>
-                <span class="level-info-value" id="last-max-digit">-</span>
-            </div>
-            <div class="level-info-row">
-                <span class="level-info-label">Último Mínimo:</span>
-                <span class="level-info-value" id="last-min-digit">-</span>
-            </div>
-        </div>
-
-        <div class="config-section">
-            <div class="config-title">
-                <i class="fas fa-bell"></i>
-                <span>CONFIGURACIÓN DE ALERTAS</span>
-            </div>
-            <div class="config-controls">
-                <div class="config-switch" id="sound-alert-switch" onclick="toggleSoundAlerts()">
-                    <i class="fas fa-volume-up"></i>
-                    <span>Alertas Sonoras</span>
-                    <div class="switch-indicator" id="sound-indicator"></div>
-                    <button class="sound-test-btn" onclick="event.stopPropagation(); testSound('win')">Test Ganancia</button>
-                    <button class="sound-test-btn" onclick="event.stopPropagation(); testSound('loss')">Test Pérdida</button>
-                </div>
-                <div class="config-switch" id="push-alert-switch" onclick="togglePushAlerts()">
-                    <i class="fas fa-bell"></i>
-                    <span>Notificaciones Push</span>
-                    <div class="switch-indicator" id="push-indicator"></div>
-                </div>
-            </div>
-            <div style="margin-top:10px;font-size:0.8rem;color:var(--text-secondary);text-align:center;">
-                <i class="fas fa-info-circle"></i> Notificaciones al iniciar/finalizar operaciones
-            </div>
-        </div>
-    </div>
-
-    <!-- PANEL 2: GRÁFICO DE DÍGITOS -->
-    <div class="panel chart-digits-panel">
-        <div class="panel-header">
-            <div class="panel-title">
+    <!-- ====================== MODAL DE TOKEN ====================== -->
+    <div class="token-modal-overlay" id="token-modal-overlay">
+        <div class="token-modal">
+            <div class="token-modal-logo">
                 <i class="fas fa-chart-line"></i>
-                <span>GRÁFICO DE DÍGITOS</span>
+                <span>TRADING ESTRATEGIA</span>
             </div>
-            <div class="panel-controls">
-                <button onclick="clearChart()" class="btn-clear">
-                    <i class="fas fa-eraser"></i> Limpiar
+            <div class="token-modal-subtitle">Volatility Digits · Deriv API</div>
+
+            <div class="token-field-label">
+                <i class="fas fa-key"></i>
+                <span>Token de API de Deriv</span>
+            </div>
+
+            <div class="token-input-wrapper">
+                <input
+                    type="password"
+                    id="token-input"
+                    class="token-input"
+                    placeholder="Pega aquí tu token de Deriv..."
+                    autocomplete="off"
+                    spellcheck="false"
+                />
+                <button class="toggle-token-visibility" id="toggle-token-btn" title="Mostrar/Ocultar token">
+                    <i class="fas fa-eye" id="toggle-token-icon"></i>
                 </button>
             </div>
-        </div>
 
-        <div class="chart-container">
-            <div id="chartContainer" style="height:100%;width:100%;"></div>
-        </div>
-
-        <div class="digit-tracker">
-            <div class="tracker-header">
-                <i class="fas fa-list-ol"></i>
-                <span>ÚLTIMOS DÍGITOS</span>
-                <span class="count-badge" id="digit-count">0</span>
-                <span class="count-badge" style="background:#2ecc71;" id="green-digit-count-badge">0</span>
-            </div>
-            <div class="digits-container" id="digits-container"></div>
-        </div>
-    </div>
-
-    <!-- PANEL 3: TRADING AUTOMÁTICO -->
-    <div class="panel trading-panel">
-        <div class="panel-header">
-            <div>
-                <div class="panel-title">
-                    <i class="fas fa-brain"></i>
-                    <span>TRADING AUTOMÁTICO</span>
-                </div>
-                <div class="panel-subtitle">Expiración: 5 ticks | Solo señales CALL</div>
-            </div>
-        </div>
-
-        <div class="mode-description">
-            <i class="fas fa-robot"></i>
-            <span>Modo Automático — Opera únicamente señales CALL confirmadas. Las señales PUT se muestran como información sin ejecutar.</span>
-        </div>
-
-        <div class="trading-controls">
-            <div class="stake-control">
-                <label class="control-label">
-                    <i class="fas fa-dollar-sign"></i> MONTO A OPERAR ($)
-                </label>
-                <div class="stake-input-container">
-                    <input type="number" id="trading-stake" class="stake-input" value="1" min="0.1" step="0.1">
-                    <div class="stake-buttons">
-                        <button class="btn-stake-adjust" onclick="adjustStake(0.1)">+0.1</button>
-                        <button class="btn-stake-adjust" onclick="adjustStake(1)">+1</button>
-                        <button class="btn-stake-adjust" onclick="adjustStake(5)">+5</button>
-                    </div>
-                </div>
+            <div class="token-help">
+                <i class="fas fa-info-circle"></i>
+                <span>
+                    Obtén tu token en
+                    <a href="https://app.deriv.com/account/api-token" target="_blank" rel="noopener">
+                        app.deriv.com/account/api-token
+                    </a>.
+                    Necesitas permisos de <strong>Read</strong> y <strong>Trade</strong>.
+                    El token se guarda localmente en tu navegador.
+                </span>
             </div>
 
-            <!-- Monitor de operación -->
-            <div id="trade-monitor" class="hidden">
-                <div class="monitor-container">
-                    <div class="monitor-header">
-                        <div class="monitor-title">
-                            <i class="fas fa-chart-line"></i>
-                            <span>MONITOREO DE OPERACIÓN</span>
-                            <span id="ticks-remaining" class="ticks-remaining">5 ticks</span>
-                        </div>
-                        <div id="monitor-status" class="monitor-status active">
-                            <i class="fas fa-circle"></i>
-                            <span>ACTIVA</span>
-                        </div>
-                    </div>
-
-                    <div class="monitor-chart" id="monitor-chart">
-                        <canvas id="monitor-canvas" class="monitor-chart-canvas"></canvas>
-                        <div class="chart-legend">
-                            <div class="legend-item">
-                                <div class="legend-color legend-entry"></div>
-                                <span>Entrada</span>
-                            </div>
-                            <div class="legend-item">
-                                <div class="legend-color legend-current"></div>
-                                <span>Actual</span>
-                            </div>
-                        </div>
-                        <div class="chart-points-info" id="chart-points-info">Ticks: 0</div>
-                    </div>
-
-                    <div class="monitor-info-panel" id="monitor-info-panel">
-                        <div class="monitor-info-item">
-                            <div class="monitor-info-label"><i class="fas fa-sign-in-alt"></i> Entrada (Real)</div>
-                            <div class="monitor-info-value" id="info-entry-price">-</div>
-                        </div>
-                        <div class="monitor-info-item">
-                            <div class="monitor-info-label"><i class="fas fa-dollar-sign"></i> Actual (Real)</div>
-                            <div class="monitor-info-value" id="info-current-price">-</div>
-                        </div>
-                        <div class="monitor-info-item">
-                            <div class="monitor-info-label"><i class="fas fa-exchange-alt"></i> Diferencia</div>
-                            <div class="monitor-info-value" id="info-price-difference">-</div>
-                        </div>
-                        <div class="monitor-info-item">
-                            <div class="monitor-info-label"><i class="fas fa-percentage"></i> %</div>
-                            <div class="monitor-info-value" id="info-percentage-change">-</div>
-                        </div>
-                        <div class="monitor-info-item">
-                            <div class="monitor-info-label"><i class="fas fa-clock"></i> Tiempo</div>
-                            <div class="monitor-info-value" id="info-elapsed-time">00:00</div>
-                        </div>
-                        <div class="monitor-info-item">
-                            <div class="monitor-info-label"><i class="fas fa-bolt"></i> Estado</div>
-                            <div class="monitor-info-value" id="info-trade-state">-</div>
-                        </div>
-                        <div class="monitor-info-item">
-                            <div class="monitor-info-label"><i class="fas fa-chart-bar"></i> Tick</div>
-                            <div class="monitor-info-value" id="info-current-tick">0/5</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="trade-info">
-                <div class="info-card">
-                    <div class="info-label">Última Operación</div>
-                    <div class="info-value" id="last-trade">-</div>
-                </div>
-                <div class="info-card">
-                    <div class="info-label">Estado</div>
-                    <div class="info-value" id="trade-status">LISTO</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="balance-info">
-            <div class="balance-card">
-                <div class="balance-label"><i class="fas fa-wallet"></i> Saldo Actual</div>
-                <div class="balance-amount" id="balance-amount">$0.00</div>
-            </div>
-            <div class="balance-card">
-                <div class="balance-label"><i class="fas fa-chart-bar"></i> Profit/Loss Total</div>
-                <div class="balance-amount" id="total-profit">$0.00</div>
-            </div>
-        </div>
-
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-label"><i class="fas fa-trophy"></i> Ganadas</div>
-                <div class="stat-value positive" id="wins-count">0</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label"><i class="fas fa-times-circle"></i> Perdidas</div>
-                <div class="stat-value negative" id="losses-count">0</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label"><i class="fas fa-exchange-alt"></i> Total Operaciones</div>
-                <div class="stat-value" id="total-trades">0</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label"><i class="fas fa-percentage"></i> Tasa de Éxito</div>
-                <div class="stat-value" id="win-rate">0%</div>
-            </div>
-        </div>
-
-        <!-- ====================== STOP WIN / STOP LOSS ====================== -->
-        <div class="sl-panel" id="stop-limits-panel">
-
-            <div class="sl-panel-header">
-                <i class="fas fa-shield-alt"></i>
-                <span>GESTIÓN DE RIESGO</span>
-                <span class="sl-profit-label">Profit sesión:</span>
-                <span class="sl-profit-value" id="stop-limits-profit">+$0.00</span>
-            </div>
-
-            <div class="sl-controls">
-
-                <!-- STOP WIN -->
-                <div class="sl-row">
-                    <div class="sl-row-header">
-                        <label class="sl-toggle-label">
-                            <input type="checkbox" id="stop-win-toggle" class="sl-checkbox">
-                            <span class="sl-toggle-track">
-                                <span class="sl-toggle-thumb"></span>
-                            </span>
-                        </label>
-                        <div class="sl-label-group">
-                            <span class="sl-label sl-label-win">
-                                <i class="fas fa-trophy"></i> Stop Win
-                            </span>
-                            <span class="sl-status sl-inactive" id="stop-win-status">Desactivado</span>
-                        </div>
-                        <div class="sl-input-group">
-                            <span class="sl-currency">$</span>
-                            <input type="number" id="stop-win-input" class="sl-input"
-                                   placeholder="0.00" min="0.01" step="0.01" disabled>
-                        </div>
-                    </div>
-                    <div class="sl-bar-track">
-                        <div class="sl-bar-fill sl-bar-win" id="stop-win-bar" style="width:0%"></div>
-                    </div>
-                </div>
-
-                <!-- STOP LOSS -->
-                <div class="sl-row">
-                    <div class="sl-row-header">
-                        <label class="sl-toggle-label">
-                            <input type="checkbox" id="stop-loss-toggle" class="sl-checkbox">
-                            <span class="sl-toggle-track">
-                                <span class="sl-toggle-thumb"></span>
-                            </span>
-                        </label>
-                        <div class="sl-label-group">
-                            <span class="sl-label sl-label-loss">
-                                <i class="fas fa-hand-paper"></i> Stop Loss
-                            </span>
-                            <span class="sl-status sl-inactive" id="stop-loss-status">Desactivado</span>
-                        </div>
-                        <div class="sl-input-group">
-                            <span class="sl-currency">$</span>
-                            <input type="number" id="stop-loss-input" class="sl-input"
-                                   placeholder="0.00" min="0.01" step="0.01" disabled>
-                        </div>
-                    </div>
-                    <div class="sl-bar-track">
-                        <div class="sl-bar-fill sl-bar-loss" id="stop-loss-bar" style="width:0%"></div>
-                    </div>
-                </div>
-
-            </div><!-- /sl-controls -->
-
-            <!-- Botón de reactivar: visible solo al dispararse un límite -->
-            <button class="sl-reset-btn" id="stop-limits-reset-btn" style="display:none;">
-                <i class="fas fa-redo"></i> Reactivar estrategia
+            <button class="btn-connect-token" id="btn-connect-token" onclick="conectarConToken()">
+                <i class="fas fa-plug"></i> Conectar
             </button>
 
-            <div class="sl-note">
-                <i class="fas fa-info-circle"></i>
-                Basado en profit/loss acumulado de la sesión actual.
-            </div>
-
-        </div><!-- /sl-panel -->
+            <div class="token-error-msg" id="token-error-msg"></div>
+        </div>
     </div>
 
-    <!-- PANEL 4: ESTRATEGIA CARTESIANA -->
-    <div class="panel strategy-panel" id="strategy-panel">
-        <div class="panel-header">
-            <div>
+    <!-- ====================== OVERLAY PARA PANELES MODALES ====================== -->
+    <div class="overlay" id="overlay" onclick="closeAllModals()"></div>
+
+    <!-- ====================== PANEL DE RESULTADOS MODAL ====================== -->
+    <div class="modal result-panel" id="result-panel">
+        <div class="modal-header">
+            <div class="modal-title">
+                <i class="fas fa-chart-line"></i>
+                <span>RESULTADO DE OPERACIÓN</span>
+            </div>
+            <div class="close-modal" onclick="closeResultPanel()">
+                <i class="fas fa-times"></i>
+            </div>
+        </div>
+        <div class="modal-content" id="result-content"></div>
+    </div>
+
+    <!-- ====================== CONTENEDOR DE NOTIFICACIONES ====================== -->
+    <div class="notification-container" id="notification-container"></div>
+
+    <!-- ====================== HEADER PRINCIPAL ====================== -->
+    <header class="main-header">
+        <div class="logo-section">
+            <div class="logo">
+                <i class="fas fa-chart-line"></i>
+                <span>TRADING ESTRATEGIA</span>
+            </div>
+            <div class="connection-status">
+                <div class="status-dot" id="status-dot"></div>
+                <span id="status-text">Desconectado</span>
+            </div>
+        </div>
+
+        <div class="price-display-section">
+            <div class="current-price-container">
+                <div class="price-label">PRECIO ACTUAL</div>
+                <div class="price-header-container">
+                    <div class="current-price-wrapper">
+                        <div class="current-price" id="price">0000.000</div>
+                        <div id="price-level-indicator" class="price-level-indicator level-mid">MEDIO</div>
+                    </div>
+                </div>
+                <div class="level-history-container" id="level-history"></div>
+            </div>
+            <div class="digit-display">
+                <div class="digit-label">DÍGITO ACTUAL</div>
+                <div class="current-digit" id="current-digit">-</div>
+            </div>
+        </div>
+
+        <div class="header-controls">
+            <div class="token-badge hidden" id="token-badge" onclick="cambiarToken()" title="Click para cambiar token">
+                <i class="fas fa-key"></i>
+                <span id="token-badge-text">Token: ****</span>
+            </div>
+
+            <select id="asset-selector" class="asset-selector">
+                <option value="R_100">Volatility 100 Index (R_100)</option>
+                <option value="R_10" selected>Volatility 10 Index (R_10)</option>
+                <option value="R_25">Volatility 25 Index (R_25)</option>
+                <option value="R_50">Volatility 50 Index (R_50)</option>
+                <option value="R_75">Volatility 75 Index (R_75)</option>
+                <option value="RDBEAR">Rise/Fall: Bear Market (RDBEAR)</option>
+                <option value="RDBULL">Rise/Fall: Bull Market (RDBULL)</option>
+                <option value="frxEURUSD">Forex EUR/USD (frxEURUSD)</option>
+                <option value="frxEURJPY">Forex EUR/JPY (frxEURJPY)</option>
+            </select>
+
+            <button onclick="startFeed()" class="btn-start">
+                <i class="fas fa-play"></i> Conectar
+            </button>
+            <button onclick="stopFeed()" class="btn-stop">
+                <i class="fas fa-stop"></i> Desconectar
+            </button>
+        </div>
+    </header>
+
+    <!-- ====================== CONTENEDOR PRINCIPAL ====================== -->
+    <div class="main-container">
+
+        <!-- PANEL IZQUIERDO: GRÁFICO DE PRECIOS -->
+        <div class="panel chart-price-panel">
+            <div class="panel-header">
+                <div>
+                    <div class="panel-title">
+                        <i class="fas fa-chart-bar"></i>
+                        <span>GRÁFICO DE PRECIOS</span>
+                    </div>
+                </div>
+                <div class="panel-controls">
+                    <button onclick="clearPriceChart()" class="btn-clear">
+                        <i class="fas fa-eraser"></i> Limpiar
+                    </button>
+                </div>
+            </div>
+
+            <div class="price-chart-container">
+                <div id="priceChartContainer" style="height:100%;width:100%;"></div>
+            </div>
+
+            <div class="level-info-panel" id="level-info-panel">
+                <div class="level-info-row">
+                    <span class="level-info-label">Nivel Actual:</span>
+                    <span class="level-info-value" id="current-level-display">MEDIO</span>
+                </div>
+                <div class="level-info-row">
+                    <span class="level-info-label">Precio Máximo:</span>
+                    <span class="level-info-value" id="max-price-display">-</span>
+                </div>
+                <div class="level-info-row">
+                    <span class="level-info-label">Precio Mínimo:</span>
+                    <span class="level-info-value" id="min-price-display">-</span>
+                </div>
+                <div class="level-info-row">
+                    <span class="level-info-label">Dígitos Verdes:</span>
+                    <span class="level-info-value" id="green-digits-count">0</span>
+                </div>
+                <div class="level-info-row">
+                    <span class="level-info-label">Último Máximo:</span>
+                    <span class="level-info-value" id="last-max-digit">-</span>
+                </div>
+                <div class="level-info-row">
+                    <span class="level-info-label">Último Mínimo:</span>
+                    <span class="level-info-value" id="last-min-digit">-</span>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <div class="config-title">
+                    <i class="fas fa-bell"></i>
+                    <span>CONFIGURACIÓN DE ALERTAS</span>
+                </div>
+                <div class="config-controls">
+                    <div class="config-switch" id="sound-alert-switch" onclick="toggleSoundAlerts()">
+                        <i class="fas fa-volume-up"></i>
+                        <span>Alertas Sonoras</span>
+                        <div class="switch-indicator" id="sound-indicator"></div>
+                        <button class="sound-test-btn" onclick="event.stopPropagation(); testSound('win')">Test Ganancia</button>
+                        <button class="sound-test-btn" onclick="event.stopPropagation(); testSound('loss')">Test Pérdida</button>
+                    </div>
+                    <div class="config-switch" id="push-alert-switch" onclick="togglePushAlerts()">
+                        <i class="fas fa-bell"></i>
+                        <span>Notificaciones Push</span>
+                        <div class="switch-indicator" id="push-indicator"></div>
+                    </div>
+                </div>
+                <div style="margin-top:10px;font-size:0.8rem;color:var(--text-secondary);text-align:center;">
+                    <i class="fas fa-info-circle"></i> Notificaciones al iniciar/finalizar operaciones
+                </div>
+            </div>
+        </div>
+
+        <!-- PANEL CENTRAL: GRÁFICO DE DÍGITOS -->
+        <div class="panel chart-digits-panel">
+            <div class="panel-header">
                 <div class="panel-title">
-                    <i class="fas fa-brain"></i>
-                    <span>ESTRATEGIA CARTESIANA</span>
+                    <i class="fas fa-chart-line"></i>
+                    <span>GRÁFICO DE DÍGITOS</span>
                 </div>
-                <div class="panel-subtitle">Patrón 5 dígitos | CALL: 3R+2A · PUT: 3A+2R | + 4 Filtros</div>
+                <div class="panel-controls">
+                    <button onclick="clearChart()" class="btn-clear">
+                        <i class="fas fa-eraser"></i> Limpiar
+                    </button>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div id="chartContainer" style="height:100%;width:100%;"></div>
+            </div>
+
+            <div class="digit-tracker">
+                <div class="tracker-header">
+                    <i class="fas fa-list-ol"></i>
+                    <span>ÚLTIMOS DÍGITOS</span>
+                    <span class="count-badge" id="digit-count">0</span>
+                    <span class="count-badge" style="background:#2ecc71;" id="green-digit-count-badge">0</span>
+                </div>
+                <div class="digits-container" id="digits-container"></div>
             </div>
         </div>
 
-        <!-- Patrón actual -->
-        <div class="strategy-section">
-            <div class="strategy-label"><i class="fas fa-list-ol"></i> PATRÓN ACTUAL (5 DÍGITOS)</div>
-            <div class="pattern-digits-row" id="pattern-digits-row">
-                <div class="pattern-placeholder">Esperando dígitos...</div>
+        <!-- PANEL DERECHO: TRADING ESTRATEGIA -->
+        <div class="panel trading-panel">
+            <div class="panel-header">
+                <div>
+                    <div class="panel-title">
+                        <i class="fas fa-brain"></i>
+                        <span>TRADING ESTRATEGIA</span>
+                    </div>
+                    <div class="panel-subtitle">Expiración: 5 ticks | Auto por señal cartesiana</div>
+                </div>
             </div>
-        </div>
 
-        <!-- Análisis azules -->
-        <div class="strategy-section">
-            <div class="strategy-label" style="color:#3498db;">
-                <i class="fas fa-arrow-up"></i> DÍGITOS AZULES — para PUT necesitas 3
-            </div>
-            <div class="strategy-analysis-row">
-                <div class="analysis-digits" id="blue-digits-display">-</div>
-                <div class="analysis-direction" id="blue-direction">—</div>
-            </div>
-        </div>
-
-        <!-- Análisis rojos -->
-        <div class="strategy-section">
-            <div class="strategy-label" style="color:#e74c3c;">
-                <i class="fas fa-arrow-down"></i> DÍGITOS ROJOS — para CALL necesitas 3
-            </div>
-            <div class="strategy-analysis-row">
-                <div class="analysis-digits" id="red-digits-display">-</div>
-                <div class="analysis-direction" id="red-direction">—</div>
-            </div>
-        </div>
-
-        <!-- Filtros de confirmación -->
-        <div class="strategy-section" id="filters-section" style="display:none;">
-            <div class="strategy-label" style="color:#f39c12;">
-                <i class="fas fa-filter"></i> FILTROS DE CONFIRMACIÓN
-            </div>
-            <div class="filters-grid" id="filters-grid">
-                <div class="filter-item" id="filter1-item">
-                    <div class="filter-icon" id="filter1-icon"><i class="fas fa-circle"></i></div>
-                    <div class="filter-text">
-                        <div class="filter-name">Filtro 1 — Último dígito dominante</div>
-                        <div class="filter-desc" id="filter1-desc">—</div>
+            <div class="trading-controls">
+                <!-- MONTO A OPERAR -->
+                <div class="stake-control">
+                    <label class="control-label">
+                        <i class="fas fa-dollar-sign"></i> MONTO A OPERAR ($)
+                    </label>
+                    <div class="stake-input-container">
+                        <input type="number" id="trading-stake" class="stake-input" value="1" min="0.1" step="0.1">
+                        <div class="stake-buttons">
+                            <button class="btn-stake-adjust" onclick="adjustStake(0.1)">+0.1</button>
+                            <button class="btn-stake-adjust" onclick="adjustStake(1)">+1</button>
+                            <button class="btn-stake-adjust" onclick="adjustStake(5)">+5</button>
+                        </div>
                     </div>
                 </div>
-                <div class="filter-item" id="filter2-item">
-                    <div class="filter-icon" id="filter2-icon"><i class="fas fa-circle"></i></div>
-                    <div class="filter-text">
-                        <div class="filter-name">Filtro 2 — Amplitud del grupo minoritario</div>
-                        <div class="filter-desc" id="filter2-desc">—</div>
+
+                <!-- STOP WIN / STOP LOSS -->
+                <div class="stop-controls">
+                    <div class="stop-controls-title">
+                        <i class="fas fa-shield-alt"></i>
+                        LÍMITES DE RIESGO — STOP WIN / STOP LOSS
+                    </div>
+
+                    <div class="stop-row">
+                        <div class="stop-field">
+                            <div class="stop-label win">
+                                <i class="fas fa-trophy"></i> Stop Win ($)
+                            </div>
+                            <input
+                                type="number"
+                                id="stop-win-input"
+                                class="stop-input win-input"
+                                placeholder="Ej: 10.00"
+                                min="0"
+                                step="0.5"
+                            />
+                        </div>
+                        <div class="stop-field">
+                            <div class="stop-label loss">
+                                <i class="fas fa-stop-circle"></i> Stop Loss ($)
+                            </div>
+                            <input
+                                type="number"
+                                id="stop-loss-input"
+                                class="stop-input loss-input"
+                                placeholder="Ej: 5.00"
+                                min="0"
+                                step="0.5"
+                            />
+                        </div>
+                    </div>
+
+                    <!-- Barra de estado -->
+                    <div class="stop-status-bar" id="stop-status-bar">
+                        <i class="fas fa-info-circle"></i>
+                        Sin límites configurados — el sistema opera sin restricciones
+                    </div>
+
+                    <!-- Barras de progreso -->
+                    <div class="stop-progress-row">
+                        <div class="stop-progress-item">
+                            <div class="stop-progress-label">Progreso Win</div>
+                            <div class="stop-progress-bar-track">
+                                <div class="stop-progress-fill win-fill" id="stop-win-fill"></div>
+                            </div>
+                            <div class="stop-progress-value win-val" id="stop-win-val">$0.00</div>
+                        </div>
+                        <div class="stop-progress-item">
+                            <div class="stop-progress-label">Progreso Loss</div>
+                            <div class="stop-progress-bar-track">
+                                <div class="stop-progress-fill loss-fill" id="stop-loss-fill"></div>
+                            </div>
+                            <div class="stop-progress-value loss-val" id="stop-loss-val">$0.00</div>
+                        </div>
                     </div>
                 </div>
-                <div class="filter-item" id="filter3-item">
-                    <div class="filter-icon" id="filter3-icon"><i class="fas fa-circle"></i></div>
-                    <div class="filter-text">
-                        <div class="filter-name">Filtro 3 — Convergencia del grupo dominante</div>
-                        <div class="filter-desc" id="filter3-desc">—</div>
+
+                <!-- BOTONES CALL/PUT (visibles pero sólo para referencia — la estrategia opera automáticamente) -->
+                <div class="action-buttons">
+                    <button class="btn-call" onclick="executeTrade('CALL')">
+                        <div class="btn-content">
+                            <i class="fas fa-arrow-up"></i>
+                            <div class="btn-text">
+                                <div class="btn-main-text">CALL</div>
+                                <div class="btn-sub-text">Compra Alcista</div>
+                            </div>
+                            <div class="btn-stake" id="call-stake">$1.00</div>
+                        </div>
+                    </button>
+
+                    <button class="btn-put" onclick="executeTrade('PUT')">
+                        <div class="btn-content">
+                            <i class="fas fa-arrow-down"></i>
+                            <div class="btn-text">
+                                <div class="btn-main-text">PUT</div>
+                                <div class="btn-sub-text">Compra Bajista</div>
+                            </div>
+                            <div class="btn-stake" id="put-stake">$1.00</div>
+                        </div>
+                    </button>
+                </div>
+
+                <!-- MONITOR DE OPERACIÓN -->
+                <div id="trade-monitor" class="hidden">
+                    <div class="monitor-container">
+                        <div class="monitor-header">
+                            <div class="monitor-title">
+                                <i class="fas fa-chart-line"></i>
+                                <span>MONITOREO DE OPERACIÓN</span>
+                                <span id="ticks-remaining" class="ticks-remaining">5 ticks</span>
+                            </div>
+                            <div id="monitor-status" class="monitor-status active">
+                                <i class="fas fa-circle"></i>
+                                <span>ACTIVA</span>
+                            </div>
+                        </div>
+
+                        <div class="monitor-chart" id="monitor-chart">
+                            <canvas id="monitor-canvas" class="monitor-chart-canvas"></canvas>
+                            <div class="chart-legend" id="chart-legend">
+                                <div class="legend-item">
+                                    <div class="legend-color legend-entry"></div>
+                                    <span>Entrada</span>
+                                </div>
+                                <div class="legend-item">
+                                    <div class="legend-color legend-current"></div>
+                                    <span>Actual</span>
+                                </div>
+                            </div>
+                            <div class="chart-points-info" id="chart-points-info">Ticks: 0</div>
+                        </div>
+
+                        <div class="monitor-info-panel" id="monitor-info-panel">
+                            <div class="monitor-info-item">
+                                <div class="monitor-info-label"><i class="fas fa-sign-in-alt"></i> Entrada (Real)</div>
+                                <div class="monitor-info-value" id="info-entry-price">-</div>
+                            </div>
+                            <div class="monitor-info-item">
+                                <div class="monitor-info-label"><i class="fas fa-dollar-sign"></i> Actual (Real)</div>
+                                <div class="monitor-info-value" id="info-current-price">-</div>
+                            </div>
+                            <div class="monitor-info-item">
+                                <div class="monitor-info-label"><i class="fas fa-exchange-alt"></i> Diferencia</div>
+                                <div class="monitor-info-value" id="info-price-difference">-</div>
+                            </div>
+                            <div class="monitor-info-item">
+                                <div class="monitor-info-label"><i class="fas fa-percentage"></i> %</div>
+                                <div class="monitor-info-value" id="info-percentage-change">-</div>
+                            </div>
+                            <div class="monitor-info-item">
+                                <div class="monitor-info-label"><i class="fas fa-clock"></i> Tiempo</div>
+                                <div class="monitor-info-value" id="info-elapsed-time">00:00</div>
+                            </div>
+                            <div class="monitor-info-item">
+                                <div class="monitor-info-label"><i class="fas fa-bolt"></i> Estado</div>
+                                <div class="monitor-info-value" id="info-trade-state">-</div>
+                            </div>
+                            <div class="monitor-info-item">
+                                <div class="monitor-info-label"><i class="fas fa-chart-bar"></i> Tick</div>
+                                <div class="monitor-info-value" id="info-current-tick">0/5</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <div class="filter-item" id="filter4-item">
-                    <div class="filter-icon" id="filter4-icon"><i class="fas fa-circle"></i></div>
-                    <div class="filter-text">
-                        <div class="filter-name">Filtro 4 — Sin dígito 0 en el patrón</div>
-                        <div class="filter-desc" id="filter4-desc">—</div>
+
+                <div class="trade-info">
+                    <div class="info-card">
+                        <div class="info-label">Última Operación</div>
+                        <div class="info-value" id="last-trade">-</div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-label">Estado</div>
+                        <div class="info-value" id="trade-status">LISTO</div>
                     </div>
                 </div>
-                <div class="filter-item" id="filter5-item">
-                    <div class="filter-icon" id="filter5-icon"><i class="fas fa-circle"></i></div>
-                    <div class="filter-text">
-                        <div class="filter-name">Filtro 5 — Agotamiento por pasos (dígitos rojos)</div>
-                        <div class="filter-desc" id="filter5-desc">—</div>
-                    </div>
+            </div>
+
+            <div class="balance-info">
+                <div class="balance-card">
+                    <div class="balance-label"><i class="fas fa-wallet"></i> Saldo Actual</div>
+                    <div class="balance-amount" id="balance-amount">$0.00</div>
                 </div>
-                <div class="filter-item" id="filter6-item">
-                    <div class="filter-icon" id="filter6-icon"><i class="fas fa-circle"></i></div>
-                    <div class="filter-text">
-                        <div class="filter-name">Filtro 6 — Sin dígito 9 en grupo minoritario</div>
-                        <div class="filter-desc" id="filter6-desc">—</div>
-                    </div>
+                <div class="balance-card">
+                    <div class="balance-label"><i class="fas fa-chart-bar"></i> Profit/Loss Total</div>
+                    <div class="balance-amount" id="total-profit">$0.00</div>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label"><i class="fas fa-trophy"></i> Ganadas</div>
+                    <div class="stat-value positive" id="wins-count">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label"><i class="fas fa-times-circle"></i> Perdidas</div>
+                    <div class="stat-value negative" id="losses-count">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label"><i class="fas fa-exchange-alt"></i> Total</div>
+                    <div class="stat-value" id="total-trades">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label"><i class="fas fa-percentage"></i> Éxito</div>
+                    <div class="stat-value" id="win-rate">0%</div>
                 </div>
             </div>
         </div>
 
-        <!-- Señal final -->
-        <div class="strategy-signal-box" id="strategy-signal-box">
-            <div class="signal-icon" id="signal-icon"><i class="fas fa-hourglass-half"></i></div>
-            <div class="signal-text" id="signal-text">ANALIZANDO...</div>
-            <div class="signal-detail" id="signal-detail">Esperando patrón completo</div>
-        </div>
-
-        <!-- Historial de señales -->
-        <div class="strategy-section" style="margin-top:10px;">
-            <div class="strategy-label"><i class="fas fa-history"></i> HISTORIAL DE SEÑALES</div>
-            <div class="signals-history" id="signals-history"></div>
-        </div>
-
-        <!-- Estadísticas de señales -->
-        <div class="strategy-stats-row">
-            <div class="strategy-stat">
-                <div class="strategy-stat-label">CALL</div>
-                <div class="strategy-stat-value positive" id="signal-calls">0</div>
+        <!-- PANEL ESTRATEGIA: ANALIZADOR DE PATRÓN 5 DÍGITOS -->
+        <div class="panel strategy-panel" id="strategy-panel">
+            <div class="panel-header">
+                <div>
+                    <div class="panel-title">
+                        <i class="fas fa-brain"></i>
+                        <span>ESTRATEGIA CARTESIANA</span>
+                    </div>
+                    <div class="panel-subtitle">Patrón 5 dígitos | CALL: 3R+2A · PUT: 3A+2R</div>
+                </div>
             </div>
-            <div class="strategy-stat">
-                <div class="strategy-stat-label">PUT</div>
-                <div class="strategy-stat-value negative" id="signal-puts">0</div>
+
+            <!-- ÚLTIMOS 5 DÍGITOS DEL PATRÓN -->
+            <div class="strategy-section">
+                <div class="strategy-label"><i class="fas fa-list-ol"></i> PATRÓN ACTUAL (5 DÍGITOS)</div>
+                <div class="pattern-digits-row" id="pattern-digits-row">
+                    <div class="pattern-placeholder">Esperando dígitos...</div>
+                </div>
             </div>
-            <div class="strategy-stat">
-                <div class="strategy-stat-label">SIN SEÑAL</div>
-                <div class="strategy-stat-value" id="signal-none">0</div>
+
+            <!-- ANÁLISIS AZULES -->
+            <div class="strategy-section">
+                <div class="strategy-label" style="color:#3498db;"><i class="fas fa-arrow-up"></i> DÍGITOS AZULES — para PUT necesitas 3</div>
+                <div class="strategy-analysis-row">
+                    <div class="analysis-digits" id="blue-digits-display">-</div>
+                    <div class="analysis-direction" id="blue-direction">—</div>
+                </div>
+            </div>
+
+            <!-- ANÁLISIS ROJOS -->
+            <div class="strategy-section">
+                <div class="strategy-label" style="color:#e74c3c;"><i class="fas fa-arrow-down"></i> DÍGITOS ROJOS — para CALL necesitas 3</div>
+                <div class="strategy-analysis-row">
+                    <div class="analysis-digits" id="red-digits-display">-</div>
+                    <div class="analysis-direction" id="red-direction">—</div>
+                </div>
+            </div>
+
+            <!-- SEÑAL FINAL -->
+            <div class="strategy-signal-box" id="strategy-signal-box">
+                <div class="signal-icon" id="signal-icon"><i class="fas fa-hourglass-half"></i></div>
+                <div class="signal-text" id="signal-text">ANALIZANDO...</div>
+                <div class="signal-detail" id="signal-detail">Esperando patrón completo</div>
+            </div>
+
+            <!-- HISTORIAL DE SEÑALES -->
+            <div class="strategy-section" style="margin-top:10px;">
+                <div class="strategy-label"><i class="fas fa-history"></i> HISTORIAL DE SEÑALES</div>
+                <div class="signals-history" id="signals-history"></div>
+            </div>
+
+            <!-- ESTADÍSTICAS SEÑALES -->
+            <div class="strategy-stats-row">
+                <div class="strategy-stat">
+                    <div class="strategy-stat-label">CALL</div>
+                    <div class="strategy-stat-value positive" id="signal-calls">0</div>
+                </div>
+                <div class="strategy-stat">
+                    <div class="strategy-stat-label">PUT</div>
+                    <div class="strategy-stat-value negative" id="signal-puts">0</div>
+                </div>
+                <div class="strategy-stat">
+                    <div class="strategy-stat-label">SIN SEÑAL</div>
+                    <div class="strategy-stat-value" id="signal-none">0</div>
+                </div>
             </div>
         </div>
     </div>
 
-</div><!-- /main-container -->
+    <!-- ====================== CANVASJS ====================== -->
+    <script src="https://canvasjs.com/assets/script/canvasjs.min.js"></script>
 
-<script src="https://canvasjs.com/assets/script/canvasjs.min.js"></script>
-<script src="app.js"></script>
+    <!-- ====================== LÓGICA DE APLICACIÓN ====================== -->
+    <script src="app.js"></script>
+
 </body>
 </html>
