@@ -1,691 +1,810 @@
 'use strict';
 
-// ====================== ESTADO DE LA APLICACIÓN ======================
-// Agrupado en namespaces para evitar 40+ variables globales sueltas
+// ====================== VARIABLES GLOBALES ======================
+let ws            = null;
+let derivWs       = null;
+let running       = false;
+let isConnecting  = false;
+let DERIV_API_TOKEN = '';
+const DURATION    = 5;
 
-const feed = {
-    ws: null,
-    running: false,
-    connecting: false,
-    asset: 'R_10',
-    lastPrice: null,
-    tickCount: 0,
-    ticksCounter: 0,
-    ticksPerMinute: 0,
-    minuteTimer: null,
-};
+let currentAsset  = 'R_10';
+let lastPrice     = null;
+let tickCount     = 0;
+let digits        = [];
+let ticksHistory  = [];
+let ticksPerMinute = 0;
+let ticksCounter  = 0;
+let minuteTimer   = null;
 
-const charts = {
-    digits: null,
-    price: null,
-    digitsPoints: [],
-    pricePoints: [],
-    digitsPos: 1,
-    pricePos: 1,
-    renderDigitsPending: false,
-    renderPricePending: false,
-};
-
-const priceLevel = {
-    history: [],
-    digitHistory: [],
-    current: 'mid',
-    maxPrice: 0,
-    minPrice: Infinity,
-    greenCount: 0,
-    lastMax: null,
-    lastMin: null,
-    infoPending: false,
-    historyPending: false,
-};
-
-const trading = {
-    derivWs: null,
-    token: '',
-    balance: 0,
-    totalProfit: 0,
-    wins: 0,
-    losses: 0,
-    totalTrades: 0,
-    stake: 1.00,
-    currentContract: null,
-    isTrading: false,
-};
-
-const monitor = {
-    activeTrade: null,
-    interval: null,
-    canvas: null,
-    ctx: null,
-    priceData: [],
-    contractTicks: [],
-};
-
-const alerts = {
-    soundEnabled: true,
-    pushEnabled: true,
-    audioCtx: null,
-    gainNode: null,
-};
-
-const strategy = {
-    buffer: [],
-    paused: false,
-    signalCalls: 0,
-    signalPuts: 0,
-    signalNone: 0,
-};
-
-const results = { list: [] };
-
-// ====================== STOP WIN / STOP LOSS ======================
-const stopLimits = {
-    stopWin:  null,   // profit acumulado máximo (+) para parar con ganancia
-    stopLoss: null,   // pérdida acumulada máxima (-) para parar con pérdida
-    active: false,    // true = los límites están habilitados
-    triggered: false, // true = ya se disparó un límite (requiere reset manual)
-    triggeredBy: null // 'stopWin' | 'stopLoss'
-};
-
-// ====================== CACHÉ DOM ======================
-const el = {};
-
-const DURATION = 5;
+// Detección de máximos/mínimos
+let priceHistory       = [];
 const PRICE_HISTORY_LENGTH = 20;
+let currentPriceLevel  = 'mid';
+let maxPrice           = 0;
+let minPrice           = Infinity;
+let greenDigitsCount   = 0;
+let lastMaxDigit       = null;
+let lastMinDigit       = null;
 
-// ====================== INICIALIZACIÓN ======================
+// Trading
+let balance        = 0;
+let totalProfit    = 0;
+let wins           = 0;
+let losses         = 0;
+let totalTrades    = 0;
+let tradingStake   = 1.00;
+let currentContract = null;
+let isTrading      = false;
 
-window.onload = function () {
-    cacheDOM();
-    initCanvasJSChart();
-    initPriceChart();
-    initMonitorCanvas();
-    updateTradingDisplay();
-    updateStakeDisplay();
-    startTicksPerMinuteCounter();
-    initLevelHistory();
-    initAudio();
-    loadAlertSettings();
-    requestPushPermission();
-    initStopLimits();
+// Stop Win / Stop Loss
+let stopWinAmount  = 0;   // 0 = desactivado
+let stopLossAmount = 0;   // 0 = desactivado
+let stopTriggered  = false;
 
-    // Cargar token guardado
-    try {
-        const saved = localStorage.getItem('deriv_token');
-        if (saved) document.getElementById('token-input').value = saved;
-    } catch (e) {}
+// Monitor de operación
+let activeTrade       = null;
+let monitorInterval   = null;
+let tradeStartTime    = null;
+let monitorCanvas     = null;
+let monitorCtx        = null;
+let priceHistoryData  = [];
+let contractTicks     = [];
 
-    document.getElementById('trading-stake').addEventListener('input', function () {
-        trading.stake = parseFloat(this.value) || 1;
-        updateStakeDisplay();
-    });
+// Alertas
+let soundAlertsEnabled = true;
+let pushAlertsEnabled  = true;
+let audioContext       = null;
+let gainNode           = null;
 
-    // Toggle visibilidad token
-    document.getElementById('toggle-token-btn').addEventListener('click', () => {
-        const inp  = document.getElementById('token-input');
-        const icon = document.getElementById('toggle-token-icon');
-        const isPassword = inp.type === 'password';
-        inp.type      = isPassword ? 'text' : 'password';
-        icon.className = isPassword ? 'fas fa-eye-slash' : 'fas fa-eye';
-    });
+// Historial de dígitos y niveles
+let digitHistory  = [];
+let levelHistory  = [];
 
-    // Enter en el input de token
-    document.getElementById('token-input').addEventListener('keydown', e => {
-        if (e.key === 'Enter') conectarConToken();
-    });
-};
+// Resultados (máx 5 en memoria)
+let lastResults   = [];
 
-function cacheDOM() {
-    const ids = [
-        'price', 'current-digit', 'balance-amount', 'total-profit',
-        'wins-count', 'losses-count', 'total-trades', 'win-rate',
-        'last-trade', 'trade-status', 'digits-container', 'digit-count',
-        'call-stake', 'put-stake', 'status-dot', 'status-text',
-        'price-level-indicator', 'level-history', 'current-level-display',
-        'max-price-display', 'min-price-display', 'green-digits-count',
-        'last-max-digit', 'last-min-digit', 'green-digit-count-badge',
-        'trade-monitor', 'monitor-status', 'monitor-chart',
-        'ticks-remaining', 'chart-points-info', 'info-current-tick',
-        'info-entry-price', 'info-current-price', 'info-price-difference',
-        'info-percentage-change', 'info-elapsed-time', 'info-trade-state',
-        'sound-alert-switch', 'sound-indicator', 'push-alert-switch', 'push-indicator',
-        'asset-selector',
-        // Estrategia
-        'pattern-digits-row', 'blue-direction', 'red-direction',
-        'blue-digits-display', 'red-digits-display',
-        'strategy-signal-box', 'signal-icon', 'signal-text', 'signal-detail',
-        'signals-history', 'signal-calls', 'signal-puts', 'signal-none',
-        'filters-section',
-        'filter1-item', 'filter1-icon', 'filter1-desc',
-        'filter2-item', 'filter2-icon', 'filter2-desc',
-        'filter3-item', 'filter3-icon', 'filter3-desc',
-        'filter4-item', 'filter4-icon', 'filter4-desc',
-        'filter5-item', 'filter5-icon', 'filter5-desc',
-        'filter6-item', 'filter6-icon', 'filter6-desc',
-    ];
-    ids.forEach(id => {
-        // Convierte 'some-id' → el.someId
-        const key = id.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-        el[key] = document.getElementById(id);
-    });
-}
+// ====================== CACHÉ DE ELEMENTOS DOM ======================
+let priceEl, currentDigitEl, balanceEl, totalProfitEl;
+let winsEl, lossesEl, totalTradesEl, winRateEl;
+let lastTradeEl, tradeStatusEl, digitsContainer, digitCountEl;
+let callStakeEl, putStakeEl, statusDot, statusText;
+let priceLevelIndicator, levelHistoryEl, currentLevelDisplay;
+let maxPriceDisplay, minPriceDisplay, greenDigitsCountEl;
+let lastMaxDigitEl, lastMinDigitEl, greenDigitCountBadge;
+let tradeMonitorEl, monitorStatusEl, monitorChartEl;
+let ticksRemainingEl, chartPointsInfo, infoCurrentTickEl;
+let infoEntryPriceEl, infoCurrentPriceEl, infoPriceDifferenceEl;
+let infoPercentageChangeEl, infoElapsedTimeEl, infoTradeStateEl;
+let soundAlertSwitch, soundIndicator, pushAlertSwitch, pushIndicator;
 
-// ====================== TOKEN ======================
+// Stop Win / Stop Loss elements
+let stopWinInput, stopLossInput, stopStatusBar;
+let stopWinFill, stopLossFill, stopWinVal, stopLossVal;
 
-window.conectarConToken = function () {
+// CanvasJS
+let digitsChart       = null;
+let priceChart        = null;
+let digitsDataPoints  = [];
+let priceDataPoints   = [];
+let currentPosition   = 1;
+let priceChartPosition = 1;
+
+// Selector cacheado
+let cachedAssetSelector = null;
+
+// ====================== TOKEN: MODAL Y GESTIÓN ======================
+window.conectarConToken = function() {
     const input   = document.getElementById('token-input');
     const errorEl = document.getElementById('token-error-msg');
     const btn     = document.getElementById('btn-connect-token');
     const token   = input.value.trim();
 
     errorEl.style.display = 'none';
+
     if (!token || token.length < 10) {
         errorEl.textContent = '⚠️ Ingresa un token válido.';
         errorEl.style.display = 'block';
         return;
     }
 
-    trading.token = token;
-    btn.disabled  = true;
+    DERIV_API_TOKEN = token;
+    btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Conectando...';
 
     const testWs = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
-    testWs.onopen = () => testWs.send(JSON.stringify({ authorize: token }));
 
-    testWs.onmessage = msg => {
+    testWs.onopen = () => { testWs.send(JSON.stringify({ authorize: token })); };
+
+    testWs.onmessage = (msg) => {
         const data = JSON.parse(msg.data);
         testWs.close();
 
         if (data.error) {
-            trading.token   = '';
-            btn.disabled    = false;
-            btn.innerHTML   = '<i class="fas fa-plug"></i> Conectar';
+            DERIV_API_TOKEN = '';
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-plug"></i> Conectar';
             errorEl.textContent = '❌ Token inválido: ' + data.error.message;
             errorEl.style.display = 'block';
             return;
         }
 
         if (data.authorize) {
-            try { localStorage.setItem('deriv_token', token); } catch (e) {}
+            try { localStorage.setItem('deriv_token', token); } catch(e) {}
 
             const badge = document.getElementById('token-badge');
-            badge.classList.remove('hidden');
-            document.getElementById('token-badge-text').textContent =
-                'Token: ' + token.substring(0, 4) + '...' + token.slice(-4);
+            if (badge) {
+                badge.classList.remove('hidden');
+                document.getElementById('token-badge-text').textContent =
+                    'Token: ' + token.substring(0, 4) + '...' + token.slice(-4);
+            }
 
             document.getElementById('token-modal-overlay').style.display = 'none';
             conectarDerivAPI();
-            notify('¡Conectado!',
+
+            showInternalNotification(
+                '¡Conectado!',
                 'Cuenta: ' + data.authorize.loginid + ' | Balance: $' + parseFloat(data.authorize.balance).toFixed(2),
-                'success');
+                'success'
+            );
         }
     };
 
     testWs.onerror = () => {
         testWs.close();
-        btn.disabled  = false;
+        btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-plug"></i> Conectar';
         errorEl.textContent = '❌ Error de conexión. Verifica tu internet.';
         errorEl.style.display = 'block';
     };
 };
 
-window.cambiarToken = function () {
-    trading.token = '';
-    if (trading.derivWs) { try { trading.derivWs.close(); } catch (e) {} trading.derivWs = null; }
-    document.getElementById('token-input').value    = '';
+window.cambiarToken = function() {
+    DERIV_API_TOKEN = '';
+    if (derivWs) { try { derivWs.close(); } catch(e) {} derivWs = null; }
+    document.getElementById('token-input').value = '';
     document.getElementById('token-error-msg').style.display = 'none';
-    const btn = document.getElementById('btn-connect-token');
-    btn.disabled  = false;
-    btn.innerHTML = '<i class="fas fa-plug"></i> Conectar';
+    document.getElementById('btn-connect-token').disabled = false;
+    document.getElementById('btn-connect-token').innerHTML = '<i class="fas fa-plug"></i> Conectar';
     document.getElementById('token-modal-overlay').style.display = 'flex';
     document.getElementById('token-badge').classList.add('hidden');
 };
 
-// ====================== MONITOR CANVAS ======================
+document.addEventListener('DOMContentLoaded', () => {
+    const toggleBtn = document.getElementById('toggle-token-btn');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+            const inp  = document.getElementById('token-input');
+            const icon = document.getElementById('toggle-token-icon');
+            inp.type = inp.type === 'password' ? 'text' : 'password';
+            icon.className = inp.type === 'password' ? 'fas fa-eye' : 'fas fa-eye-slash';
+        });
+    }
+    const tokenInput = document.getElementById('token-input');
+    if (tokenInput) {
+        tokenInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') conectarConToken(); });
+    }
+});
 
+// ====================== INICIALIZACIÓN ======================
+window.onload = function() {
+    priceEl              = document.getElementById('price');
+    currentDigitEl       = document.getElementById('current-digit');
+    balanceEl            = document.getElementById('balance-amount');
+    totalProfitEl        = document.getElementById('total-profit');
+    winsEl               = document.getElementById('wins-count');
+    lossesEl             = document.getElementById('losses-count');
+    totalTradesEl        = document.getElementById('total-trades');
+    winRateEl            = document.getElementById('win-rate');
+    lastTradeEl          = document.getElementById('last-trade');
+    tradeStatusEl        = document.getElementById('trade-status');
+    digitsContainer      = document.getElementById('digits-container');
+    digitCountEl         = document.getElementById('digit-count');
+    callStakeEl          = document.getElementById('call-stake');
+    putStakeEl           = document.getElementById('put-stake');
+    statusDot            = document.getElementById('status-dot');
+    statusText           = document.getElementById('status-text');
+    priceLevelIndicator  = document.getElementById('price-level-indicator');
+    levelHistoryEl       = document.getElementById('level-history');
+    currentLevelDisplay  = document.getElementById('current-level-display');
+    maxPriceDisplay      = document.getElementById('max-price-display');
+    minPriceDisplay      = document.getElementById('min-price-display');
+    greenDigitsCountEl   = document.getElementById('green-digits-count');
+    lastMaxDigitEl       = document.getElementById('last-max-digit');
+    lastMinDigitEl       = document.getElementById('last-min-digit');
+    greenDigitCountBadge = document.getElementById('green-digit-count-badge');
+    tradeMonitorEl       = document.getElementById('trade-monitor');
+    monitorStatusEl      = document.getElementById('monitor-status');
+    monitorChartEl       = document.getElementById('monitor-chart');
+    ticksRemainingEl     = document.getElementById('ticks-remaining');
+    chartPointsInfo      = document.getElementById('chart-points-info');
+    infoCurrentTickEl    = document.getElementById('info-current-tick');
+    infoEntryPriceEl     = document.getElementById('info-entry-price');
+    infoCurrentPriceEl   = document.getElementById('info-current-price');
+    infoPriceDifferenceEl = document.getElementById('info-price-difference');
+    infoPercentageChangeEl = document.getElementById('info-percentage-change');
+    infoElapsedTimeEl    = document.getElementById('info-elapsed-time');
+    infoTradeStateEl     = document.getElementById('info-trade-state');
+    soundAlertSwitch     = document.getElementById('sound-alert-switch');
+    soundIndicator       = document.getElementById('sound-indicator');
+    pushAlertSwitch      = document.getElementById('push-alert-switch');
+    pushIndicator        = document.getElementById('push-indicator');
+    cachedAssetSelector  = document.getElementById('asset-selector');
+
+    // Stop Win / Stop Loss
+    stopWinInput  = document.getElementById('stop-win-input');
+    stopLossInput = document.getElementById('stop-loss-input');
+    stopStatusBar = document.getElementById('stop-status-bar');
+    stopWinFill   = document.getElementById('stop-win-fill');
+    stopLossFill  = document.getElementById('stop-loss-fill');
+    stopWinVal    = document.getElementById('stop-win-val');
+    stopLossVal   = document.getElementById('stop-loss-val');
+
+    if (stopWinInput) {
+        stopWinInput.addEventListener('input', () => {
+            stopWinAmount = parseFloat(stopWinInput.value) || 0;
+            stopTriggered = false;
+            updateStopStatusBar();
+        });
+    }
+    if (stopLossInput) {
+        stopLossInput.addEventListener('input', () => {
+            stopLossAmount = parseFloat(stopLossInput.value) || 0;
+            stopTriggered = false;
+            updateStopStatusBar();
+        });
+    }
+
+    initCanvasJSChart();
+    initPriceChart();
+    initMonitorCanvas();
+    updateTradingDisplay();
+    updateStakeDisplay();
+    startTicksPerMinuteCounter();
+    initializeLevelHistory();
+    initializeAudioSystem();
+    loadAlertSettings();
+    requestNotificationPermission();
+    initStrategyElements();
+
+    try {
+        const saved = localStorage.getItem('deriv_token');
+        if (saved) document.getElementById('token-input').value = saved;
+    } catch(e) {}
+
+    document.getElementById('trading-stake').addEventListener('input', function() {
+        tradingStake = parseFloat(this.value) || 1;
+        updateStakeDisplay();
+    });
+};
+
+// ====================== STOP WIN / STOP LOSS ======================
+function checkStopConditions() {
+    if (stopTriggered) return true;
+
+    const sw = stopWinAmount  > 0 && totalProfit >= stopWinAmount;
+    const sl = stopLossAmount > 0 && totalProfit <= -stopLossAmount;
+
+    if (sw || sl) {
+        stopTriggered = true;
+        strategyPaused = true;
+
+        const msg = sw
+            ? `🏆 Stop Win alcanzado: +$${totalProfit.toFixed(2)}`
+            : `🛑 Stop Loss alcanzado: $${totalProfit.toFixed(2)}`;
+
+        if (stopStatusBar) {
+            stopStatusBar.className = 'stop-status-bar triggered';
+            stopStatusBar.innerHTML = `<i class="fas fa-${sw ? 'trophy' : 'stop-circle'}"></i> ${msg}`;
+        }
+
+        showInternalNotification(
+            sw ? '🏆 Stop Win activado' : '🛑 Stop Loss activado',
+            msg + ' — El sistema se ha detenido.',
+            sw ? 'success' : 'error'
+        );
+        playAlertSound(sw ? 'win' : 'loss');
+
+        return true;
+    }
+
+    updateStopStatusBar();
+    return false;
+}
+
+function updateStopStatusBar() {
+    if (!stopStatusBar) return;
+
+    const hasWin  = stopWinAmount  > 0;
+    const hasLoss = stopLossAmount > 0;
+
+    if (stopTriggered) return; // No sobreescribir mensaje de triggered
+
+    if (!hasWin && !hasLoss) {
+        stopStatusBar.className = 'stop-status-bar';
+        stopStatusBar.innerHTML = '<i class="fas fa-info-circle"></i> Sin límites configurados — el sistema opera sin restricciones';
+        if (stopWinFill)  stopWinFill.style.width  = '0%';
+        if (stopLossFill) stopLossFill.style.width = '0%';
+        if (stopWinVal)   stopWinVal.textContent   = '$0.00';
+        if (stopLossVal)  stopLossVal.textContent  = '$0.00';
+        return;
+    }
+
+    // Actualizar barras de progreso
+    if (hasWin && stopWinFill) {
+        const pct = Math.min(100, Math.max(0, (totalProfit / stopWinAmount) * 100));
+        stopWinFill.style.width = pct + '%';
+    }
+    if (stopWinVal) stopWinVal.textContent = (totalProfit > 0 ? '+' : '') + '$' + totalProfit.toFixed(2);
+
+    if (hasLoss && stopLossFill) {
+        const loss = -totalProfit;
+        const pct  = Math.min(100, Math.max(0, (loss / stopLossAmount) * 100));
+        stopLossFill.style.width = pct + '%';
+    }
+    if (stopLossVal) stopLossVal.textContent = '$' + totalProfit.toFixed(2);
+
+    // Mensaje de estado
+    let parts = [];
+    if (hasWin)  parts.push(`SW: $${stopWinAmount.toFixed(2)}`);
+    if (hasLoss) parts.push(`SL: $${stopLossAmount.toFixed(2)}`);
+
+    const isGaining = totalProfit > 0;
+    stopStatusBar.className = 'stop-status-bar ' + (isGaining ? 'active-win' : (totalProfit < 0 ? 'active-loss' : ''));
+    stopStatusBar.innerHTML = `<i class="fas fa-shield-alt"></i> Activo — ${parts.join(' | ')} | P/L: ${totalProfit >= 0 ? '+' : ''}$${totalProfit.toFixed(2)}`;
+}
+
+// ====================== CANVAS DE MONITOREO ======================
 function initMonitorCanvas() {
-    monitor.canvas = document.getElementById('monitor-canvas');
-    if (!monitor.canvas) return;
-    monitor.ctx = monitor.canvas.getContext('2d');
+    monitorCanvas = document.getElementById('monitor-canvas');
+    if (!monitorCanvas) return;
+    monitorCtx = monitorCanvas.getContext('2d');
     resizeMonitorCanvas();
     window.addEventListener('resize', resizeMonitorCanvas);
 }
 
 function resizeMonitorCanvas() {
-    if (!monitor.canvas || !el.monitorChart) return;
-    monitor.canvas.width  = el.monitorChart.clientWidth;
-    monitor.canvas.height = el.monitorChart.clientHeight;
-    if (monitor.activeTrade && monitor.priceData.length > 0) drawMonitorChart();
+    if (!monitorCanvas || !monitorChartEl) return;
+    monitorCanvas.width  = monitorChartEl.clientWidth;
+    monitorCanvas.height = monitorChartEl.clientHeight;
+    if (activeTrade && priceHistoryData.length > 0) drawMonitorChartWithRealData();
 }
 
-// ====================== DIBUJO DEL MONITOR ======================
+// ====================== GRÁFICO MONITOR ======================
+function drawMonitorChartWithRealData() {
+    if (!monitorCtx || !monitorCanvas || !priceHistoryData.length || !activeTrade) return;
 
-function drawMonitorChart() {
-    const { ctx, canvas } = monitor;
-    if (!ctx || !canvas || !monitor.priceData.length || !monitor.activeTrade) return;
+    const width      = monitorCanvas.width;
+    const height     = monitorCanvas.height;
+    const padding    = 20;
+    const chartWidth = width  - padding * 2;
+    const chartHeight = height - padding * 2;
 
-    const w = canvas.width, h = canvas.height, pad = 20;
-    const cw = w - pad * 2, ch = h - pad * 2;
+    monitorCtx.clearRect(0, 0, width, height);
+    drawChartBackground(width, height, padding, chartHeight);
 
-    ctx.clearRect(0, 0, w, h);
-    drawBg(w, h, pad, ch);
+    const prices     = priceHistoryData.map(p => p.price);
+    const entryPrice = activeTrade.entryPrice;
+    const currPrice  = activeTrade.currentPrice;
 
-    const prices  = monitor.priceData.map(p => p.price);
-    const entry   = monitor.activeTrade.entryPrice;
-    const current = monitor.activeTrade.currentPrice;
-    const minP    = prices.reduce((m, v) => v < m ? v : m, Math.min(entry, current));
-    const maxP    = prices.reduce((m, v) => v > m ? v : m, Math.max(entry, current));
-    const range   = Math.max(0.0001, maxP - minP);
+    const minPriceVal = prices.reduce((m, v) => v < m ? v : m, Math.min(entryPrice, currPrice));
+    const maxPriceVal = prices.reduce((m, v) => v > m ? v : m, Math.max(entryPrice, currPrice));
+    const priceRange  = Math.max(0.0001, maxPriceVal - minPriceVal);
 
-    drawPLAreas(w, h, pad, ch, minP, range);
-    drawRefLines(w, pad, ch, minP, range);
-    drawPriceLine(w, pad, cw, ch, minP, range);
-    drawEntryDot(pad, ch, entry, minP, range);
-    drawCurrentDot(w, pad, cw, ch, current, minP, range);
-    drawLegend(pad);
+    drawProfitLossAreas(width, height, padding, chartHeight, minPriceVal, priceRange);
+    drawReferenceLines(width, height, padding, chartHeight, minPriceVal, priceRange);
+    drawPriceLineWithRealData(width, height, padding, chartWidth, chartHeight, minPriceVal, priceRange);
+    drawEntryPoint(width, height, padding, chartWidth, chartHeight, entryPrice, minPriceVal, priceRange);
+    drawCurrentPoint(width, height, padding, chartWidth, chartHeight, currPrice, minPriceVal, priceRange);
+    drawChartLegend(width, height);
 
-    if (el.chartPointsInfo) el.chartPointsInfo.textContent = `Ticks: ${monitor.priceData.length}/5`;
+    if (chartPointsInfo) chartPointsInfo.textContent = `Ticks: ${priceHistoryData.length}/5`;
 }
 
-function drawBg(w, h, pad, ch) {
-    const { ctx } = monitor;
-    ctx.fillStyle = 'rgba(0,0,0,0.2)';
-    ctx.fillRect(pad, pad, w - pad * 2, ch);
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(pad, pad, w - pad * 2, ch);
-    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-    ctx.lineWidth = 0.5;
+function drawChartBackground(width, height, padding, chartHeight) {
+    monitorCtx.fillStyle = 'rgba(0,0,0,0.2)';
+    monitorCtx.fillRect(padding, padding, width - padding * 2, height - padding * 2);
+    monitorCtx.strokeStyle = 'rgba(255,255,255,0.1)';
+    monitorCtx.lineWidth = 1;
+    monitorCtx.strokeRect(padding, padding, width - padding * 2, height - padding * 2);
+    monitorCtx.strokeStyle = 'rgba(255,255,255,0.05)';
+    monitorCtx.lineWidth = 0.5;
     for (let i = 0; i <= 5; i++) {
-        const y = pad + i * ch / 5;
-        ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w - pad, y); ctx.stroke();
+        const y = padding + i * chartHeight / 5;
+        monitorCtx.beginPath();
+        monitorCtx.moveTo(padding, y);
+        monitorCtx.lineTo(width - padding, y);
+        monitorCtx.stroke();
     }
 }
 
-function drawPLAreas(w, h, pad, ch, minP, range) {
-    if (!monitor.activeTrade) return;
-    const { ctx } = monitor;
-    const entryY = pad + ch - ((monitor.activeTrade.entryPrice - minP) / range * ch);
-    ctx.fillStyle = 'rgba(46,204,113,0.05)';
-    ctx.fillRect(pad, pad, w - pad * 2, entryY - pad);
-    ctx.fillStyle = 'rgba(231,76,60,0.05)';
-    ctx.fillRect(pad, entryY, w - pad * 2, h - pad - entryY);
+function drawProfitLossAreas(width, height, padding, chartHeight, minPv, priceRange) {
+    if (!activeTrade) return;
+    const entryY = padding + chartHeight - ((activeTrade.entryPrice - minPv) / priceRange * chartHeight);
+    monitorCtx.fillStyle = 'rgba(46,204,113,0.05)';
+    monitorCtx.fillRect(padding, padding, width - padding * 2, entryY - padding);
+    monitorCtx.fillStyle = 'rgba(231,76,60,0.05)';
+    monitorCtx.fillRect(padding, entryY, width - padding * 2, height - padding - entryY);
 }
 
-function drawRefLines(w, pad, ch, minP, range) {
-    const { ctx } = monitor;
-    const entryY = pad + ch - ((monitor.activeTrade.entryPrice - minP) / range * ch);
-    ctx.strokeStyle = 'rgba(52,152,219,0.5)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 3]);
-    ctx.beginPath(); ctx.moveTo(pad, entryY); ctx.lineTo(w - pad, entryY); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(52,152,219,0.8)';
-    ctx.font = '10px Arial';
-    ctx.fillText('Entrada', w - pad - 50, entryY - 5);
+function drawReferenceLines(width, height, padding, chartHeight, minPv, priceRange) {
+    const entryY = padding + chartHeight - ((activeTrade.entryPrice - minPv) / priceRange * chartHeight);
+    monitorCtx.strokeStyle = 'rgba(52,152,219,0.5)';
+    monitorCtx.lineWidth = 2;
+    monitorCtx.setLineDash([5, 3]);
+    monitorCtx.beginPath();
+    monitorCtx.moveTo(padding, entryY);
+    monitorCtx.lineTo(width - padding, entryY);
+    monitorCtx.stroke();
+    monitorCtx.setLineDash([]);
+    monitorCtx.fillStyle = 'rgba(52,152,219,0.8)';
+    monitorCtx.font = '10px Arial';
+    monitorCtx.fillText('Entrada', width - padding - 50, entryY - 5);
 }
 
-function drawPriceLine(w, pad, cw, ch, minP, range) {
-    const { ctx } = monitor;
-    const n = monitor.priceData.length;
-    if (n < 2) return;
-    const color = monitor.activeTrade.isWinning ? 'rgba(46,204,113,0.8)' : 'rgba(231,76,60,0.8)';
-    ctx.strokeStyle = color; ctx.lineWidth = 2;
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    ctx.beginPath();
-    for (let i = 0; i < n; i++) {
-        const x = pad + i * cw / (n - 1);
-        const y = pad + ch - ((monitor.priceData[i].price - minP) / range * ch);
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-    for (let i = 0; i < n; i++) {
-        const x = pad + i * cw / (n - 1);
-        const y = pad + ch - ((monitor.priceData[i].price - minP) / range * ch);
-        ctx.fillStyle = color;
-        ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1; ctx.stroke();
-    }
+function drawPriceLineWithRealData(width, height, padding, chartWidth, chartHeight, minPv, priceRange) {
+    if (priceHistoryData.length < 2) return;
+    const color = activeTrade.isWinning ? 'rgba(46,204,113,0.8)' : 'rgba(231,76,60,0.8)';
+    monitorCtx.strokeStyle = color;
+    monitorCtx.lineWidth = 2;
+    monitorCtx.lineJoin = 'round';
+    monitorCtx.lineCap  = 'round';
+    monitorCtx.beginPath();
+    priceHistoryData.forEach((pt, i) => {
+        const x = padding + i * chartWidth / (priceHistoryData.length - 1);
+        const y = padding + chartHeight - ((pt.price - minPv) / priceRange * chartHeight);
+        i === 0 ? monitorCtx.moveTo(x, y) : monitorCtx.lineTo(x, y);
+    });
+    monitorCtx.stroke();
+    priceHistoryData.forEach((pt, i) => {
+        const x = padding + i * chartWidth / (priceHistoryData.length - 1);
+        const y = padding + chartHeight - ((pt.price - minPv) / priceRange * chartHeight);
+        monitorCtx.fillStyle   = color;
+        monitorCtx.strokeStyle = 'rgba(255,255,255,0.8)';
+        monitorCtx.lineWidth = 1;
+        monitorCtx.beginPath();
+        monitorCtx.arc(x, y, 3, 0, Math.PI * 2);
+        monitorCtx.fill();
+        monitorCtx.stroke();
+    });
 }
 
-function drawEntryDot(pad, ch, entryPrice, minP, range) {
-    const { ctx } = monitor;
-    const x = pad, y = pad + ch - ((entryPrice - minP) / range * ch);
-    ctx.fillStyle = 'rgba(52,152,219,1)'; ctx.strokeStyle = 'white'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = 'rgba(52,152,219,1)'; ctx.font = 'bold 12px Arial';
-    ctx.fillText('E', x - 3, y + 4);
+function drawEntryPoint(width, height, padding, chartWidth, chartHeight, entryPrice, minPv, priceRange) {
+    const x = padding;
+    const y = padding + chartHeight - ((entryPrice - minPv) / priceRange * chartHeight);
+    monitorCtx.fillStyle   = 'rgba(52,152,219,1)';
+    monitorCtx.strokeStyle = 'rgba(255,255,255,1)';
+    monitorCtx.lineWidth = 2;
+    monitorCtx.beginPath();
+    monitorCtx.arc(x, y, 6, 0, Math.PI * 2);
+    monitorCtx.fill();
+    monitorCtx.stroke();
+    monitorCtx.fillStyle = 'rgba(52,152,219,1)';
+    monitorCtx.font = 'bold 12px Arial';
+    monitorCtx.fillText('E', x - 3, y + 4);
 }
 
-function drawCurrentDot(w, pad, cw, ch, currPrice, minP, range) {
-    const { ctx } = monitor;
-    const x     = w - pad;
-    const y     = pad + ch - ((currPrice - minP) / range * ch);
-    const color = monitor.activeTrade.isWinning ? 'rgba(46,204,113,1)' : 'rgba(231,76,60,1)';
-    ctx.fillStyle = color; ctx.strokeStyle = 'white'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = 'white'; ctx.font = 'bold 12px Arial'; ctx.fillText('A', x - 3, y + 4);
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
-    ctx.setLineDash([2, 2]);
-    ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, pad + ch); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = color; ctx.font = 'bold 11px Arial';
-    const xd = decimals(feed.asset);
-    ctx.fillText(currPrice.toFixed(xd), x + 5, y);
+function drawCurrentPoint(width, height, padding, chartWidth, chartHeight, currPrice, minPv, priceRange) {
+    const x     = width - padding;
+    const y     = padding + chartHeight - ((currPrice - minPv) / priceRange * chartHeight);
+    const color = activeTrade.isWinning ? 'rgba(46,204,113,1)' : 'rgba(231,76,60,1)';
+    monitorCtx.fillStyle   = color;
+    monitorCtx.strokeStyle = 'rgba(255,255,255,1)';
+    monitorCtx.lineWidth = 2;
+    monitorCtx.beginPath();
+    monitorCtx.arc(x, y, 8, 0, Math.PI * 2);
+    monitorCtx.fill();
+    monitorCtx.stroke();
+    monitorCtx.fillStyle = 'rgba(255,255,255,1)';
+    monitorCtx.font = 'bold 12px Arial';
+    monitorCtx.fillText('A', x - 3, y + 4);
+    monitorCtx.strokeStyle = 'rgba(255,255,255,0.3)';
+    monitorCtx.lineWidth = 1;
+    monitorCtx.setLineDash([2, 2]);
+    monitorCtx.beginPath();
+    monitorCtx.moveTo(x, padding);
+    monitorCtx.lineTo(x, height - padding);
+    monitorCtx.stroke();
+    monitorCtx.setLineDash([]);
+    monitorCtx.fillStyle = color;
+    monitorCtx.font = 'bold 11px Arial';
+    const xd = obtenerDecimalesPorInstrumento(currentAsset);
+    monitorCtx.fillText(currPrice.toFixed(xd), x + 5, y);
 }
 
-function drawLegend(pad) {
-    const { ctx } = monitor;
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(pad, pad, 150, 60);
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
-    ctx.strokeRect(pad, pad, 150, 60);
-    ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = 'bold 12px Arial';
-    ctx.fillText('LEYENDA', pad + 50, pad + 15);
-    ctx.fillStyle = 'rgba(52,152,219,1)';
-    ctx.beginPath(); ctx.arc(pad + 10, pad + 30, 4, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.font = '10px Arial';
-    ctx.fillText('Entrada', pad + 20, pad + 34);
-    ctx.fillStyle = monitor.activeTrade.isWinning ? 'rgba(46,204,113,1)' : 'rgba(231,76,60,1)';
-    ctx.beginPath(); ctx.arc(pad + 10, pad + 45, 4, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.fillText('Actual', pad + 20, pad + 49);
+function drawChartLegend(width, height) {
+    const pad = 10;
+    monitorCtx.fillStyle = 'rgba(0,0,0,0.7)';
+    monitorCtx.fillRect(pad, pad, 150, 60);
+    monitorCtx.strokeStyle = 'rgba(255,255,255,0.3)';
+    monitorCtx.lineWidth = 1;
+    monitorCtx.strokeRect(pad, pad, 150, 60);
+    monitorCtx.fillStyle = 'rgba(255,255,255,0.9)';
+    monitorCtx.font = 'bold 12px Arial';
+    monitorCtx.fillText('LEYENDA', pad + 50, pad + 15);
+    monitorCtx.fillStyle = 'rgba(52,152,219,1)';
+    monitorCtx.beginPath();
+    monitorCtx.arc(pad + 10, pad + 30, 4, 0, Math.PI * 2);
+    monitorCtx.fill();
+    monitorCtx.fillStyle = 'rgba(255,255,255,0.8)';
+    monitorCtx.font = '10px Arial';
+    monitorCtx.fillText('Entrada', pad + 20, pad + 34);
+    monitorCtx.fillStyle = activeTrade.isWinning ? 'rgba(46,204,113,1)' : 'rgba(231,76,60,1)';
+    monitorCtx.beginPath();
+    monitorCtx.arc(pad + 10, pad + 45, 4, 0, Math.PI * 2);
+    monitorCtx.fill();
+    monitorCtx.fillStyle = 'rgba(255,255,255,0.8)';
+    monitorCtx.fillText('Actual', pad + 20, pad + 49);
 }
 
 // ====================== AUDIO ======================
-
-function initAudio() {
+function initializeAudioSystem() {
     try {
-        alerts.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        alerts.gainNode = alerts.audioCtx.createGain();
-        alerts.gainNode.connect(alerts.audioCtx.destination);
-        alerts.gainNode.gain.value = 0.5;
-    } catch (e) {
-        alerts.soundEnabled = false;
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        gainNode = audioContext.createGain();
+        gainNode.connect(audioContext.destination);
+        gainNode.gain.value = 0.5;
+    } catch(e) {
+        soundAlertsEnabled = false;
         updateSoundSwitch();
     }
 }
 
-function playSound(type) {
-    if (!alerts.soundEnabled || !alerts.audioCtx) return;
+function playAlertSound(type) {
+    if (!soundAlertsEnabled || !audioContext) return;
     try {
-        const osc      = alerts.audioCtx.createOscillator();
-        const envelope = alerts.audioCtx.createGain();
+        const osc      = audioContext.createOscillator();
+        const envelope = audioContext.createGain();
         osc.connect(envelope);
-        envelope.connect(alerts.gainNode);
+        envelope.connect(gainNode);
         osc.frequency.value = type === 'win' ? 880 : type === 'loss' ? 440 : 660;
         osc.type = 'sine';
-        const t = alerts.audioCtx.currentTime;
-        envelope.gain.setValueAtTime(0, t);
-        envelope.gain.linearRampToValueAtTime(0.3, t + 0.1);
-        envelope.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
-        osc.start(t);
-        osc.stop(t + 0.5);
-    } catch (e) {}
+        envelope.gain.setValueAtTime(0, audioContext.currentTime);
+        envelope.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.1);
+        envelope.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+        osc.start(audioContext.currentTime);
+        osc.stop(audioContext.currentTime + 0.5);
+    } catch(e) {}
 }
 
-window.testSound = function (type) {
-    playSound(type);
-    notify(type === 'win' ? 'Test Ganancia' : 'Test Pérdida',
-           type === 'win' ? 'Sonido de alerta de ganancia' : 'Sonido de alerta de pérdida',
-           type === 'win' ? 'success' : 'error');
+window.testSound = function(type) {
+    playAlertSound(type);
+    showInternalNotification(
+        type === 'win' ? 'Test Ganancia' : 'Test Pérdida',
+        type === 'win' ? 'Sonido de alerta de ganancia' : 'Sonido de alerta de pérdida',
+        type === 'win' ? 'success' : 'error'
+    );
 };
 
 // ====================== NOTIFICACIONES ======================
-
-function requestPushPermission() {
-    if (!('Notification' in window)) { alerts.pushEnabled = false; updatePushSwitch(); return; }
-    if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+function requestNotificationPermission() {
+    if (!('Notification' in window)) { pushAlertsEnabled = false; updatePushSwitch(); return; }
+    if (Notification.permission === 'granted') return;
+    if (Notification.permission !== 'denied') {
         setTimeout(() => {
             Notification.requestPermission().then(p => {
-                if (p !== 'granted') { alerts.pushEnabled = false; updatePushSwitch(); saveAlertSettings(); }
+                if (p !== 'granted') { pushAlertsEnabled = false; updatePushSwitch(); saveAlertSettings(); }
             });
         }, 3000);
     }
 }
 
-function notify(title, message, type = 'info') {
-    if (alerts.pushEnabled && Notification.permission === 'granted') {
-        const n = new Notification('Trading Manual - ' + title, {
+function showNotification(title, message, type = 'info') {
+    if (pushAlertsEnabled && Notification.permission === 'granted') {
+        const n = new Notification('Trading - ' + title, {
             body: (type === 'success' ? '✅' : type === 'error' ? '❌' : '⚠️') + ' ' + message,
             icon: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
-            tag: 'trading-alert',
+            tag: 'trading-alert'
         });
-        n.onclick = function () { window.focus(); this.close(); };
+        n.onclick = function() { window.focus(); this.close(); };
         setTimeout(() => n.close(), 5000);
     }
-    notifyInternal(title, message, type);
+    showInternalNotification(title, message, type);
 }
 
-function notifyInternal(title, message, type = 'info') {
+function showInternalNotification(title, message, type = 'info') {
     const container = document.getElementById('notification-container');
     if (!container) return;
+
     const id = 'notif-' + Date.now();
     const iconClass = type === 'success' ? 'fa-check-circle' :
                       type === 'error'   ? 'fa-times-circle' :
                       type === 'warning' ? 'fa-exclamation-triangle' : 'fa-info-circle';
 
-    const div = document.createElement('div');
-    div.className = `notification ${type}`;
-    div.id = id;
-    div.innerHTML = `
+    const el = document.createElement('div');
+    el.className = `notification ${type}`;
+    el.id = id;
+    el.innerHTML = `
         <div class="notification-icon"><i class="fas ${iconClass}"></i></div>
         <div class="notification-content">
             <div class="notification-title">${title}</div>
             <div class="notification-message">${message}</div>
         </div>
-        <button class="notification-close" onclick="closeNotif('${id}')">
+        <button class="notification-close" onclick="closeNotification('${id}')">
             <i class="fas fa-times"></i>
         </button>`;
-    container.insertBefore(div, container.firstChild);
-    div.offsetHeight; // force reflow for CSS transition
-    div.classList.add('show');
-    setTimeout(() => closeNotif(id), 5000);
+
+    container.insertBefore(el, container.firstChild);
+    el.offsetHeight;
+    el.classList.add('show');
+    setTimeout(() => closeNotification(id), 5000);
 
     const all = container.querySelectorAll('.notification');
     if (all.length > 5) all[all.length - 1].remove();
 }
 
-window.closeNotif = function (id) {
-    const div = document.getElementById(id);
-    if (!div) return;
-    div.classList.remove('show');
-    div.classList.add('hide');
-    setTimeout(() => div.remove(), 300);
+window.closeNotification = function(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('show');
+    el.classList.add('hide');
+    setTimeout(() => el.remove(), 300);
 };
 
-// ====================== CONFIGURACIÓN DE ALERTAS ======================
-
-window.toggleSoundAlerts = function () {
-    alerts.soundEnabled = !alerts.soundEnabled;
+// ====================== ALERTAS CONFIG ======================
+window.toggleSoundAlerts = function() {
+    soundAlertsEnabled = !soundAlertsEnabled;
     updateSoundSwitch();
     saveAlertSettings();
-    notifyInternal('Configuración',
-        alerts.soundEnabled ? 'Alertas sonoras activadas' : 'Alertas sonoras desactivadas',
-        alerts.soundEnabled ? 'success' : 'warning');
+    showInternalNotification('Configuración',
+        soundAlertsEnabled ? 'Alertas sonoras activadas' : 'Alertas sonoras desactivadas',
+        soundAlertsEnabled ? 'success' : 'warning');
 };
 
-window.togglePushAlerts = function () {
+window.togglePushAlerts = function() {
     if (!('Notification' in window)) {
-        notifyInternal('Error', 'Este navegador no soporta notificaciones push', 'error'); return;
+        showInternalNotification('Error', 'Este navegador no soporta notificaciones push', 'error'); return;
     }
     if (Notification.permission === 'denied') {
-        notifyInternal('Error', 'Permiso denegado. Habilítalo en configuración del navegador.', 'error'); return;
+        showInternalNotification('Error', 'Permiso denegado. Habilítalo en la configuración del navegador.', 'error'); return;
     }
     if (Notification.permission !== 'granted') {
         Notification.requestPermission().then(p => {
-            if (p === 'granted') {
-                alerts.pushEnabled = true; updatePushSwitch(); saveAlertSettings();
-                notifyInternal('Configuración', 'Notificaciones push activadas', 'success');
-            }
+            if (p === 'granted') { pushAlertsEnabled = true; updatePushSwitch(); saveAlertSettings();
+                showInternalNotification('Configuración', 'Notificaciones push activadas', 'success'); }
         });
     } else {
-        alerts.pushEnabled = !alerts.pushEnabled;
+        pushAlertsEnabled = !pushAlertsEnabled;
         updatePushSwitch();
         saveAlertSettings();
-        notifyInternal('Configuración',
-            alerts.pushEnabled ? 'Notificaciones push activadas' : 'Notificaciones push desactivadas',
-            alerts.pushEnabled ? 'success' : 'warning');
+        showInternalNotification('Configuración',
+            pushAlertsEnabled ? 'Notificaciones push activadas' : 'Notificaciones push desactivadas',
+            pushAlertsEnabled ? 'success' : 'warning');
     }
 };
 
 function updateSoundSwitch() {
-    if (!el.soundAlertSwitch || !el.soundIndicator) return;
-    el.soundAlertSwitch.classList.toggle('active', alerts.soundEnabled);
-    el.soundIndicator.classList.toggle('active', alerts.soundEnabled);
+    if (!soundAlertSwitch || !soundIndicator) return;
+    soundAlertSwitch.classList.toggle('active', soundAlertsEnabled);
+    soundIndicator.classList.toggle('active', soundAlertsEnabled);
 }
 
 function updatePushSwitch() {
-    const on = alerts.pushEnabled && Notification.permission === 'granted';
-    if (!el.pushAlertSwitch || !el.pushIndicator) return;
-    el.pushAlertSwitch.classList.toggle('active', on);
-    el.pushIndicator.classList.toggle('active', on);
+    const on = pushAlertsEnabled && Notification.permission === 'granted';
+    if (!pushAlertSwitch || !pushIndicator) return;
+    pushAlertSwitch.classList.toggle('active', on);
+    pushIndicator.classList.toggle('active', on);
 }
 
 function saveAlertSettings() {
-    try {
-        localStorage.setItem('alertSettings',
-            JSON.stringify({ soundAlerts: alerts.soundEnabled, pushAlerts: alerts.pushEnabled }));
-    } catch (e) {}
+    try { localStorage.setItem('alertSettings', JSON.stringify({ soundAlerts: soundAlertsEnabled, pushAlerts: pushAlertsEnabled })); } catch(e) {}
 }
 
 function loadAlertSettings() {
     try {
         const saved = localStorage.getItem('alertSettings');
-        if (!saved) return;
-        const s = JSON.parse(saved);
-        alerts.soundEnabled = s.soundAlerts !== undefined ? s.soundAlerts : true;
-        alerts.pushEnabled  = s.pushAlerts  !== undefined ? s.pushAlerts  : true;
-        updateSoundSwitch();
-        updatePushSwitch();
-    } catch (e) {}
+        if (saved) {
+            const s = JSON.parse(saved);
+            soundAlertsEnabled = s.soundAlerts !== undefined ? s.soundAlerts : true;
+            pushAlertsEnabled  = s.pushAlerts  !== undefined ? s.pushAlerts  : true;
+            updateSoundSwitch();
+            updatePushSwitch();
+        }
+    } catch(e) {}
 }
 
 // ====================== DETECCIÓN DE NIVEL DE PRECIO ======================
-
-function initLevelHistory() {
-    priceLevel.history = Array(20).fill('mid');
+function initializeLevelHistory() {
+    levelHistory = Array(20).fill('mid');
     updateLevelHistoryDisplay();
 }
 
-function updatePriceLevel(price) {
-    const num = parseFloat(price);
-    priceLevel.history.push(num);
-    if (priceLevel.history.length > PRICE_HISTORY_LENGTH) priceLevel.history.shift();
-    if (priceLevel.history.length < 3) { priceLevel.current = 'mid'; return 'mid'; }
+function updatePriceLevel(currentPrice) {
+    const num = parseFloat(currentPrice);
+    priceHistory.push(num);
+    if (priceHistory.length > PRICE_HISTORY_LENGTH) priceHistory.shift();
+    if (priceHistory.length < 3) { currentPriceLevel = 'mid'; return 'mid'; }
 
-    priceLevel.maxPrice = priceLevel.history.reduce((m, v) => v > m ? v : m, -Infinity);
-    priceLevel.minPrice = priceLevel.history.reduce((m, v) => v < m ? v : m, Infinity);
+    maxPrice = priceHistory.reduce((m, v) => v > m ? v : m, -Infinity);
+    minPrice = priceHistory.reduce((m, v) => v < m ? v : m, Infinity);
 
-    if (num === priceLevel.maxPrice && num !== priceLevel.minPrice)      priceLevel.current = 'max';
-    else if (num === priceLevel.minPrice && num !== priceLevel.maxPrice) priceLevel.current = 'min';
-    else { priceLevel.current = 'mid'; priceLevel.greenCount++; }
+    if (num === maxPrice && num !== minPrice) currentPriceLevel = 'max';
+    else if (num === minPrice && num !== maxPrice) currentPriceLevel = 'min';
+    else { currentPriceLevel = 'mid'; greenDigitsCount++; }
 
-    priceLevel.digitHistory.push(priceLevel.current);
-    if (priceLevel.digitHistory.length > 20) priceLevel.digitHistory.shift();
+    levelHistory.push(currentPriceLevel);
+    if (levelHistory.length > 20) levelHistory.shift();
 
     updateLevelDisplay();
     updateLevelHistoryDisplay();
-
-    if (!priceLevel.infoPending) {
-        priceLevel.infoPending = true;
-        setTimeout(() => { updateLevelInfoPanel(); priceLevel.infoPending = false; }, 500);
-    }
-
-    return priceLevel.current;
+    updateLevelInfoPanel();
+    return currentPriceLevel;
 }
 
 function updateLevelDisplay() {
-    if (!el.priceLevelIndicator) return;
+    if (!priceLevelIndicator) return;
     const labels  = { max: 'MÁXIMO', min: 'MÍNIMO', mid: 'MEDIO' };
     const classes = { max: 'level-max', min: 'level-min', mid: 'level-mid' };
-    el.priceLevelIndicator.textContent = labels[priceLevel.current];
-    el.priceLevelIndicator.className   = 'price-level-indicator ' + classes[priceLevel.current];
+    priceLevelIndicator.textContent = labels[currentPriceLevel];
+    priceLevelIndicator.className   = 'price-level-indicator ' + classes[currentPriceLevel];
 }
 
 function updateLevelHistoryDisplay() {
-    if (!el.levelHistory || priceLevel.historyPending) return;
-    priceLevel.historyPending = true;
-    setTimeout(() => {
-        const frag = document.createDocumentFragment();
-        for (const lvl of priceLevel.digitHistory) {
-            const span = document.createElement('span');
-            span.className   = 'level-history-badge history-' + lvl;
-            span.textContent = lvl === 'max' ? 'M' : lvl === 'min' ? 'm' : '·';
-            frag.appendChild(span);
-        }
-        el.levelHistory.innerHTML = '';
-        el.levelHistory.appendChild(frag);
-        priceLevel.historyPending = false;
-    }, 300);
+    if (!levelHistoryEl) return;
+    const frag = document.createDocumentFragment();
+    levelHistory.forEach(lvl => {
+        const span = document.createElement('span');
+        span.className = 'level-history-badge history-' + lvl;
+        span.textContent = lvl === 'max' ? 'M' : lvl === 'min' ? 'm' : '·';
+        frag.appendChild(span);
+    });
+    levelHistoryEl.innerHTML = '';
+    levelHistoryEl.appendChild(frag);
 }
 
 function updateLevelInfoPanel() {
-    if (!el.currentLevelDisplay) return;
+    if (!currentLevelDisplay) return;
     const labels = { max: 'MÁXIMO', min: 'MÍNIMO', mid: 'MEDIO' };
     const colors = { max: '#3498db', min: '#e74c3c', mid: '#2ecc71' };
-    el.currentLevelDisplay.textContent = labels[priceLevel.current];
-    el.currentLevelDisplay.style.color = colors[priceLevel.current];
+    currentLevelDisplay.textContent = labels[currentPriceLevel];
+    currentLevelDisplay.style.color = colors[currentPriceLevel];
 
-    if (priceLevel.history.length > 0) {
-        const xd = decimals(feed.asset);
-        if (el.maxPriceDisplay) el.maxPriceDisplay.textContent = priceLevel.maxPrice.toFixed(xd);
-        if (el.minPriceDisplay) el.minPriceDisplay.textContent = priceLevel.minPrice.toFixed(xd);
+    if (priceHistory.length > 0) {
+        const xd = obtenerDecimalesPorInstrumento(currentAsset);
+        maxPriceDisplay.textContent = maxPrice.toFixed(xd);
+        minPriceDisplay.textContent = minPrice.toFixed(xd);
     }
-    if (el.greenDigitsCount)  el.greenDigitsCount.textContent  = priceLevel.greenCount;
-    if (priceLevel.lastMax !== null && el.lastMaxDigit) {
-        el.lastMaxDigit.textContent = priceLevel.lastMax;
-        el.lastMaxDigit.style.color = '#3498db';
-    }
-    if (priceLevel.lastMin !== null && el.lastMinDigit) {
-        el.lastMinDigit.textContent = priceLevel.lastMin;
-        el.lastMinDigit.style.color = '#e74c3c';
-    }
+
+    greenDigitsCountEl.textContent = greenDigitsCount;
+    if (lastMaxDigit !== null) { lastMaxDigitEl.textContent = lastMaxDigit; lastMaxDigitEl.style.color = '#3498db'; }
+    if (lastMinDigit !== null) { lastMinDigitEl.textContent = lastMinDigit; lastMinDigitEl.style.color = '#e74c3c'; }
 }
 
 function updateDigitBadgesWithLevel(digit, level) {
-    const first = el.digitsContainer ? el.digitsContainer.firstElementChild : null;
-    if (!first) return;
-    first.classList.remove('max-digit', 'min-digit', 'mid-digit');
-    first.classList.add(level + '-digit');
-    if (level === 'max') priceLevel.lastMax = digit;
-    if (level === 'min') priceLevel.lastMin = digit;
+    const firstBadge = digitsContainer ? digitsContainer.firstElementChild : null;
+    if (!firstBadge) return;
+    firstBadge.classList.remove('max-digit', 'min-digit', 'mid-digit');
+    firstBadge.classList.add(level + '-digit');
+    if (level === 'max') lastMaxDigit = digit;
+    if (level === 'min') lastMinDigit = digit;
 }
 
-// ====================== UI ======================
-
-window.closeAllModals = function () {
-    document.getElementById('overlay').style.display       = 'none';
-    document.getElementById('result-panel').style.display  = 'none';
+// ====================== INTERFAZ ======================
+window.closeAllModals = function() {
+    document.getElementById('overlay').style.display = 'none';
+    document.getElementById('result-panel').style.display = 'none';
 };
 
-window.closeResultPanel = function () {
-    document.getElementById('result-panel').style.display  = 'none';
-    document.getElementById('overlay').style.display       = 'none';
+window.closeResultPanel = function() {
+    document.getElementById('result-panel').style.display = 'none';
+    document.getElementById('overlay').style.display = 'none';
 };
 
-window.adjustStake = function (amount) {
-    trading.stake = Math.min(10000, Math.max(0.1, trading.stake + amount));
+window.adjustStake = function(amount) {
+    tradingStake = Math.min(10000, Math.max(0.1, tradingStake + amount));
     const inp = document.getElementById('trading-stake');
-    if (inp) inp.value = trading.stake.toFixed(2);
+    if (inp) inp.value = tradingStake.toFixed(2);
     updateStakeDisplay();
 };
 
 function updateStakeDisplay() {
-    if (el.callStake) el.callStake.textContent = `$${trading.stake.toFixed(2)}`;
-    if (el.putStake)  el.putStake.textContent  = `$${trading.stake.toFixed(2)}`;
-}
-
-function updateConnectionStatus(text, color) {
-    if (el.statusText) { el.statusText.textContent = text; el.statusText.style.color = color; }
-    if (el.statusDot)  el.statusDot.style.backgroundColor = color;
+    if (callStakeEl) callStakeEl.textContent = `$${tradingStake.toFixed(2)}`;
+    if (putStakeEl)  putStakeEl.textContent  = `$${tradingStake.toFixed(2)}`;
 }
 
 // ====================== CANVASJS ======================
-
 function initCanvasJSChart() {
-    charts.digits = new CanvasJS.Chart('chartContainer', {
+    digitsChart = new CanvasJS.Chart('chartContainer', {
         animationEnabled: false,
         theme: 'light2',
         title: { text: '' },
@@ -694,336 +813,316 @@ function initCanvasJSChart() {
         axisY: {
             stripLines: [{ value: 0, thickness: 1, color: '#ccc' }],
             includeZero: false, labelFontSize: 0, gridThickness: 0, tickLength: 0, lineThickness: 1,
-            minimum: -10, maximum: 10,
+            minimum: -10, maximum: 10
         },
-        data: [{ type: 'line', lineColor: '#ccc', lineThickness: 2, markerType: 'none', dataPoints: charts.digitsPoints }],
+        data: [{ type: 'line', lineColor: '#ccc', lineThickness: 2, markerType: 'none', dataPoints: digitsDataPoints }]
     });
-    charts.digits.render();
+    digitsChart.render();
 }
 
 function initPriceChart() {
-    charts.price = new CanvasJS.Chart('priceChartContainer', {
+    priceChart = new CanvasJS.Chart('priceChartContainer', {
         animationEnabled: false,
         theme: 'light2',
         title: { text: '' },
         toolTip: { enabled: true, animationEnabled: true, borderColor: '#ccc', fontColor: '#000', content: '{y}' },
         axisX: { includeZero: false, labelFontSize: 0, gridThickness: 0, tickLength: 0, lineThickness: 1 },
         axisY: { includeZero: false, labelFontSize: 0, gridThickness: 0, tickLength: 0, lineThickness: 1 },
-        data: [{ type: 'line', lineColor: '#ccc', lineThickness: 2, markerType: 'none', dataPoints: charts.pricePoints }],
+        data: [{ type: 'line', lineColor: '#ccc', lineThickness: 2, markerType: 'none', dataPoints: priceDataPoints }]
     });
-    charts.price.render();
+    priceChart.render();
 }
 
-function updateDigitsChart(digit, wentUp, processedDigit) {
-    if (!charts.digits) return;
-    const y = wentUp ? parseFloat(processedDigit) : -parseFloat(processedDigit);
+function updateCanvasJSChart(digit, wentUp, processedDigit) {
+    if (!digitsChart) return;
+    const yValue = wentUp ? parseFloat(processedDigit) : -parseFloat(processedDigit);
 
-    let maxY = y, minY = y;
-    for (const p of charts.digitsPoints) {
-        if (p.y > maxY) maxY = p.y;
-        if (p.y < minY) minY = p.y;
-    }
-    const isExtreme   = y === maxY || y === minY || charts.digitsPoints.length === 0;
-    const markerColor = y === maxY ? '#29abe2' : y === minY ? '#c03' : 'black';
+    const allY  = digitsDataPoints.map(p => p.y);
+    const maxY  = allY.reduce((m, v) => v > m ? v : m, yValue);
+    const minY  = allY.reduce((m, v) => v < m ? v : m, yValue);
 
-    charts.digitsPoints.push({
-        x: charts.digitsPos++, y,
+    const markerColor = yValue === maxY ? '#29abe2' : yValue === minY ? '#c03' : 'black';
+    const mSize       = (yValue === maxY || yValue === minY || digitsDataPoints.length === 0) ? 6 : 3;
+
+    digitsDataPoints.push({
+        x: currentPosition++,
+        y: yValue,
         indexLabel: Math.abs(processedDigit).toString(),
-        indexLabelFontWeight: 'bold', indexLabelFontSize: 13,
+        indexLabelFontWeight: 'bold',
+        indexLabelFontSize: 16,
         indexLabelFontColor: wentUp ? '#29abe2' : '#c03',
-        markerSize: isExtreme ? 6 : 3, markerType: 'circle',
-        markerColor, markerBorderColor: '#ccc',
+        markerSize: mSize,
+        markerType: 'circle',
+        markerColor: markerColor,
+        markerBorderColor: '#ccc'
     });
 
-    if (charts.digitsPoints.length > 20) {
-        charts.digitsPoints.shift();
-        const base = charts.digitsPos - 20;
-        charts.digitsPoints.forEach((p, i) => p.x = base + i);
+    if (digitsDataPoints.length > 20) {
+        digitsDataPoints.shift();
+        digitsDataPoints.forEach((pt, i) => { pt.x = i + 1; });
+        currentPosition = digitsDataPoints.length + 1;
     }
 
-    if (!charts.renderDigitsPending) {
-        charts.renderDigitsPending = true;
-        setTimeout(() => {
-            charts.digits.options.data[0].dataPoints = charts.digitsPoints;
-            charts.digits.render();
-            charts.renderDigitsPending = false;
-        }, 200);
-    }
+    digitsChart.options.data[0].dataPoints = digitsDataPoints;
+    digitsChart.render();
 }
 
 function updatePriceChart(price, digit, wentUp) {
-    if (!charts.price) return;
-    const xd  = decimals(feed.asset);
+    if (!priceChart) return;
+    const xd  = obtenerDecimalesPorInstrumento(currentAsset);
     const num = parseFloat(parseFloat(price).toFixed(xd));
 
-    charts.pricePoints.push({
-        x: charts.pricePos++, y: num,
+    priceDataPoints.push({
+        x: priceChartPosition++,
+        y: num,
         indexLabel: digit.toString(),
-        indexLabelFontWeight: 'bold', indexLabelFontSize: 13,
+        indexLabelFontWeight: 'bold',
+        indexLabelFontSize: 16,
         indexLabelFontColor: wentUp ? '#29abe2' : '#c03',
-        markerSize: 3, markerType: 'circle',
-        markerColor: 'black', markerBorderColor: '#ccc',
+        markerSize: 3,
+        markerType: 'circle',
+        markerColor: 'black',
+        markerBorderColor: '#ccc'
     });
 
-    if (charts.pricePoints.length > 20) {
-        charts.pricePoints.shift();
-        const base = charts.pricePos - 20;
-        charts.pricePoints.forEach((p, i) => p.x = base + i);
+    if (priceDataPoints.length > 20) {
+        priceDataPoints.shift();
+        priceDataPoints.forEach((pt, i) => { pt.x = i + 1; });
+        priceChartPosition = priceDataPoints.length + 1;
     }
 
-    if (charts.pricePoints.length > 1) {
-        let mn = Infinity, mx = -Infinity;
-        for (const p of charts.pricePoints) {
-            if (p.y < mn) mn = p.y;
-            if (p.y > mx) mx = p.y;
-        }
+    if (priceDataPoints.length > 1) {
+        const ys  = priceDataPoints.map(p => p.y);
+        const mn  = ys.reduce((m, v) => v < m ? v : m, Infinity);
+        const mx  = ys.reduce((m, v) => v > m ? v : m, -Infinity);
         const rng = mx - mn;
-        charts.price.options.axisY.minimum = mn - rng * 0.1;
-        charts.price.options.axisY.maximum = mx + rng * 0.1;
+        priceChart.options.axisY.minimum = mn - rng * 0.1;
+        priceChart.options.axisY.maximum = mx + rng * 0.1;
     }
 
-    if (!charts.renderPricePending) {
-        charts.renderPricePending = true;
-        setTimeout(() => {
-            charts.price.options.data[0].dataPoints = charts.pricePoints;
-            charts.price.render();
-            charts.renderPricePending = false;
-        }, 200);
-    }
+    priceChart.options.data[0].dataPoints = priceDataPoints;
+    priceChart.render();
 }
 
-window.clearChart = function () {
-    charts.digitsPoints = [];
-    charts.digitsPos    = 1;
-    priceLevel.digitHistory = [];
-    const container = el.digitsContainer;
-    if (container) container.innerHTML = '';
-    if (el.digitCount) el.digitCount.textContent = '0';
-    if (charts.digits) { charts.digits.options.data[0].dataPoints = []; charts.digits.render(); }
+window.clearChart = function() {
+    digitsDataPoints = [];
+    currentPosition  = 1;
+    digits = [];
+    digitHistory = [];
+    if (digitsChart) { digitsChart.options.data[0].dataPoints = []; digitsChart.render(); }
+    if (digitsContainer) digitsContainer.innerHTML = '';
+    if (digitCountEl)    digitCountEl.textContent = '0';
 };
 
-window.clearPriceChart = function () {
-    charts.pricePoints   = [];
-    charts.pricePos      = 1;
-    priceLevel.history   = [];
-    priceLevel.greenCount = 0;
-    priceLevel.lastMax   = priceLevel.lastMin = null;
-    priceLevel.digitHistory = [];
-    initLevelHistory();
+window.clearPriceChart = function() {
+    priceDataPoints    = [];
+    priceChartPosition = 1;
+    priceHistory       = [];
+    greenDigitsCount   = 0;
+    lastMaxDigit = lastMinDigit = null;
+    levelHistory = [];
+    initializeLevelHistory();
     updateLevelInfoPanel();
-    if (charts.price) {
-        charts.price.options.data[0].dataPoints = [];
-        delete charts.price.options.axisY.minimum;
-        delete charts.price.options.axisY.maximum;
-        charts.price.render();
+    if (priceChart) {
+        priceChart.options.data[0].dataPoints = [];
+        delete priceChart.options.axisY.minimum;
+        delete priceChart.options.axisY.maximum;
+        priceChart.render();
     }
 };
 
 // ====================== MONITOR DE OPERACIÓN ======================
-
-function startTradeMonitor(contractId, tradeType, entryPrice, entryPriceDisplayed, entryTime) {
-    monitor.activeTrade = {
+function startTradeMonitorWithRealData(contractId, tradeType, entryPrice, entryPriceDisplayed, entryTime) {
+    activeTrade = {
         id: contractId, type: tradeType,
         entryPrice, entryPriceDisplayed,
         currentPrice: entryPrice,
         startTime: entryTime,
         ticksRemaining: 5, currentTickIndex: 1,
-        isWinning: false, profitLoss: 0,
+        isWinning: false, profitLoss: 0
     };
 
-    monitor.contractTicks = [{ price: entryPrice, timestamp: entryTime.getTime(), tick_index: 1 }];
-    monitor.priceData     = [{ price: entryPrice, timestamp: entryTime.getTime() }];
+    contractTicks    = [{ price: entryPrice, timestamp: entryTime.getTime(), tick_index: 1 }];
+    priceHistoryData = contractTicks.map(t => ({ price: t.price, timestamp: t.timestamp }));
 
-    el.tradeMonitor.classList.remove('hidden');
-    refreshMonitorUI();
-    if (monitor.interval) { clearInterval(monitor.interval); monitor.interval = null; }
+    tradeMonitorEl.classList.remove('hidden');
+    updateTradeMonitorWithRealData();
 
-    notify('Operación Iniciada',
-        `${tradeType} @ $${entryPrice.toFixed(4)} (ID: ${contractId.substring(0, 8)}...)`, 'info');
+    if (monitorInterval) clearInterval(monitorInterval);
+    monitorInterval = setInterval(() => {
+        if (activeTrade) updateElapsedTime();
+    }, 1000);
+
+    showNotification('Operación Iniciada',
+        `${tradeType} @ $${entryPrice.toFixed(4)} (ID: ${contractId.substring(0,8)}...)`, 'info');
+
     resizeMonitorCanvas();
 }
 
-function refreshMonitorUI() {
-    if (!monitor.activeTrade) return;
-    const xd   = decimals(feed.asset);
-    const diff = monitor.activeTrade.currentPrice - monitor.activeTrade.entryPrice;
-    const pct  = (diff / monitor.activeTrade.entryPrice) * 100;
-    const win  = monitor.activeTrade.type === 'CALL' ? diff > 0 : diff < 0;
+function updateTradeMonitorWithRealData() {
+    if (!activeTrade) return;
+    const xd = obtenerDecimalesPorInstrumento(currentAsset);
 
-    monitor.activeTrade.isWinning  = win;
-    monitor.activeTrade.profitLoss = diff;
+    if (infoEntryPriceEl)   infoEntryPriceEl.textContent   = activeTrade.entryPrice.toFixed(xd);
+    if (infoCurrentPriceEl) infoCurrentPriceEl.textContent = activeTrade.currentPrice.toFixed(xd);
 
-    updateMonitorStatus(win);
-    updateMonitorInfoPanel(monitor.activeTrade.entryPrice, monitor.activeTrade.currentPrice, diff, pct, xd);
+    const diff = activeTrade.currentPrice - activeTrade.entryPrice;
+    const pct  = (diff / activeTrade.entryPrice) * 100;
+    const isWinning = activeTrade.type === 'CALL' ? diff > 0 : diff < 0;
+    activeTrade.isWinning  = isWinning;
+    activeTrade.profitLoss = diff;
 
-    if (el.ticksRemaining) {
-        el.ticksRemaining.textContent = `${monitor.activeTrade.ticksRemaining} ticks`;
-        el.ticksRemaining.style.color = monitor.activeTrade.ticksRemaining <= 2 ? 'var(--danger-color)' :
-                                        monitor.activeTrade.ticksRemaining <= 3 ? 'var(--warning-color)' : '';
+    updateMonitorStatus(isWinning);
+    updateMonitorInfoPanel(activeTrade.entryPrice, activeTrade.currentPrice, diff, pct, xd);
+
+    if (ticksRemainingEl) {
+        ticksRemainingEl.textContent = `${activeTrade.ticksRemaining} ticks`;
+        ticksRemainingEl.style.color = activeTrade.ticksRemaining <= 2 ? 'var(--danger-color)' :
+                                       activeTrade.ticksRemaining <= 3 ? 'var(--warning-color)' : '';
     }
-    if (el.infoCurrentTick) el.infoCurrentTick.textContent = `${monitor.activeTrade.currentTickIndex || 0}/5`;
 
-    drawMonitorChart();
+    if (infoCurrentTickEl) infoCurrentTickEl.textContent = `${activeTrade.currentTickIndex || 0}/5`;
+    drawMonitorChartWithRealData();
 }
 
 function updateMonitorInfoPanel(entryPrice, currentPrice, diff, pct, xd) {
-    if (!el.infoEntryPrice) return;
-    el.infoEntryPrice.textContent    = entryPrice.toFixed(xd);
-    el.infoCurrentPrice.textContent  = currentPrice.toFixed(xd);
-    el.infoCurrentPrice.className    = `monitor-info-value ${diff >= 0 ? 'positive' : 'negative'}`;
-    el.infoPriceDifference.innerHTML = `${diff.toFixed(xd)}<span class="profit-indicator ${diff >= 0 ? 'positive' : 'negative'}">${diff >= 0 ? '+' : ''}${diff.toFixed(xd)}</span>`;
-    el.infoPriceDifference.className = `monitor-info-value ${diff >= 0 ? 'positive' : 'negative'}`;
-    el.infoPercentageChange.textContent = `${pct >= 0 ? '+' : ''}${pct.toFixed(4)}%`;
-    el.infoPercentageChange.className   = `monitor-info-value ${pct >= 0 ? 'positive' : 'negative'}`;
-    el.infoTradeState.textContent = diff >= 0 ? 'GANANDO' : 'PERDIENDO';
-    el.infoTradeState.className   = `monitor-info-value ${diff >= 0 ? 'positive' : 'negative'}`;
+    if (!infoEntryPriceEl) return;
+    infoEntryPriceEl.textContent   = entryPrice.toFixed(xd);
+    infoCurrentPriceEl.textContent = currentPrice.toFixed(xd);
+    infoCurrentPriceEl.className = `monitor-info-value ${diff >= 0 ? 'positive' : 'negative'}`;
+    infoPriceDifferenceEl.innerHTML = `${diff.toFixed(xd)}<span class="profit-indicator ${diff >= 0 ? 'positive' : 'negative'}">${diff >= 0 ? '+' : ''}${diff.toFixed(xd)}</span>`;
+    infoPriceDifferenceEl.className = `monitor-info-value ${diff >= 0 ? 'positive' : 'negative'}`;
+    infoPercentageChangeEl.textContent = `${pct >= 0 ? '+' : ''}${pct.toFixed(4)}%`;
+    infoPercentageChangeEl.className   = `monitor-info-value ${pct >= 0 ? 'positive' : 'negative'}`;
+    infoTradeStateEl.textContent = diff >= 0 ? 'GANANDO' : 'PERDIENDO';
+    infoTradeStateEl.className   = `monitor-info-value ${diff >= 0 ? 'positive' : 'negative'}`;
 }
 
-function updateMonitorWithTicks(realTicks) {
-    if (!monitor.activeTrade || !realTicks.length) return;
+function updateMonitorWithRealData(realTicks) {
+    if (!activeTrade || !realTicks.length) return;
     const last = realTicks[realTicks.length - 1];
-    monitor.activeTrade.currentPrice     = last.price;
-    monitor.activeTrade.ticksRemaining   = 5 - last.tick_index;
-    monitor.activeTrade.currentTickIndex = last.tick_index;
+    activeTrade.currentPrice     = last.price;
+    activeTrade.ticksRemaining   = 5 - last.tick_index;
+    activeTrade.currentTickIndex = last.tick_index;
 
-    monitor.priceData = realTicks.map(t => ({ price: t.price, timestamp: t.timestamp }));
+    const diff      = activeTrade.currentPrice - activeTrade.entryPrice;
+    const pct       = (diff / activeTrade.entryPrice) * 100;
+    const isWinning = activeTrade.type === 'CALL' ? diff > 0 : diff < 0;
 
-    if (el.infoCurrentTick) el.infoCurrentTick.textContent = `${last.tick_index}/5`;
+    activeTrade.isWinning  = isWinning;
+    activeTrade.profitLoss = diff;
 
-    const diff = monitor.activeTrade.currentPrice - monitor.activeTrade.entryPrice;
-    const pct  = (diff / monitor.activeTrade.entryPrice) * 100;
-    const win  = monitor.activeTrade.type === 'CALL' ? diff > 0 : diff < 0;
-    monitor.activeTrade.isWinning  = win;
-    monitor.activeTrade.profitLoss = diff;
+    updateMonitorStatus(isWinning);
+    const xd = obtenerDecimalesPorInstrumento(currentAsset);
+    updateMonitorInfoPanel(activeTrade.entryPrice, activeTrade.currentPrice, diff, pct, xd);
 
-    updateMonitorStatus(win);
-    updateMonitorInfoPanel(monitor.activeTrade.entryPrice, monitor.activeTrade.currentPrice, diff, pct, decimals(feed.asset));
-    updateElapsedTime();
-    drawMonitorChart();
+    priceHistoryData = realTicks.map(t => ({ price: t.price, timestamp: t.timestamp }));
+    if (infoCurrentTickEl) infoCurrentTickEl.textContent = `${last.tick_index}/5`;
+    drawMonitorChartWithRealData();
 }
 
 function updateElapsedTime() {
-    if (!monitor.activeTrade || !el.infoElapsedTime) return;
-    const s = Math.floor((Date.now() - monitor.activeTrade.startTime) / 1000);
-    el.infoElapsedTime.textContent =
+    if (!activeTrade || !infoElapsedTimeEl) return;
+    const s = Math.floor((Date.now() - activeTrade.startTime) / 1000);
+    infoElapsedTimeEl.textContent =
         String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
 }
 
 function updateMonitorStatus(isWinning) {
-    if (!el.monitorStatus) return;
-    el.monitorStatus.className = 'monitor-status ' + (isWinning ? 'winning' : 'losing');
-    el.monitorStatus.innerHTML = `<i class="fas fa-circle"></i><span>${isWinning ? 'GANANDO' : 'PERDIENDO'}</span>`;
-    if (el.monitorChart) {
-        el.monitorChart.style.backgroundColor = isWinning ? 'rgba(46,204,113,0.05)' : 'rgba(231,76,60,0.05)';
-        el.monitorChart.style.borderColor      = isWinning ? 'rgba(46,204,113,0.2)'  : 'rgba(231,76,60,0.2)';
+    if (!monitorStatusEl) return;
+    monitorStatusEl.className = 'monitor-status ' + (isWinning ? 'winning' : 'losing');
+    monitorStatusEl.innerHTML = `<i class="fas fa-circle"></i><span>${isWinning ? 'GANANDO' : 'PERDIENDO'}</span>`;
+    if (monitorChartEl) {
+        monitorChartEl.style.backgroundColor = isWinning ? 'rgba(46,204,113,0.05)' : 'rgba(231,76,60,0.05)';
+        monitorChartEl.style.borderColor      = isWinning ? 'rgba(46,204,113,0.2)'  : 'rgba(231,76,60,0.2)';
     }
 }
 
 function stopTradeMonitor() {
-    if (monitor.interval) { clearInterval(monitor.interval); monitor.interval = null; }
-    setTimeout(() => { if (el.tradeMonitor) el.tradeMonitor.classList.add('hidden'); }, 3000);
-    monitor.activeTrade   = null;
-    monitor.contractTicks = [];
+    if (monitorInterval) { clearInterval(monitorInterval); monitorInterval = null; }
+    setTimeout(() => { if (tradeMonitorEl) tradeMonitorEl.classList.add('hidden'); }, 3000);
+    activeTrade    = null;
+    contractTicks  = [];
 }
 
 // ====================== TRADING ======================
+window.executeTrade = function(type) {
+    if (!running) { alert('⚠️ Primero debes conectar el feed de precios'); return; }
+    if (isTrading) { alert('⏳ Ya hay una operación en curso. Espera a que termine.'); return; }
+    if (tradingStake <= 0) { alert('❌ El monto a operar debe ser mayor a 0'); return; }
+    if (tradingStake > balance) { alert('❌ Saldo insuficiente'); return; }
+    if (stopTriggered) { alert('🛑 El sistema está detenido por Stop Win/Loss. Ajusta los límites para continuar.'); return; }
 
-window.executeTrade = function (type) {
-    if (!feed.running)     { alert('⚠️ Primero debes conectar el feed de precios'); return; }
-    if (trading.isTrading) { alert('⏳ Ya hay una operación en curso. Espera a que termine.'); return; }
-    if (trading.stake <= 0) { alert('❌ El monto a operar debe ser mayor a 0'); return; }
-    if (trading.stake > trading.balance) { alert('❌ Saldo insuficiente'); return; }
-
-    trading.isTrading = true;
-    el.tradeStatus.textContent = 'OPERANDO...';
-    el.tradeStatus.style.color = '#f39c12';
-    operarAutomatico(type === 'CALL' ? 'UP' : 'DOWN', trading.stake);
+    isTrading = true;
+    tradeStatusEl.textContent  = 'OPERANDO...';
+    tradeStatusEl.style.color  = '#f39c12';
+    window.operarAutomatico(type === 'CALL' ? 'UP' : 'DOWN', tradingStake);
 };
 
-function procesarResultado(ganancia) {
-    trading.isTrading = false;
+function procesarResultadoTrading(ganancia) {
+    isTrading = false;
     stopTradeMonitor();
 
-    // El balance real es actualizado por el evento data.balance de la API de Deriv.
-    // NO se ajusta manualmente aquí para evitar doble conteo.
-    trading.totalProfit += ganancia;
-    trading.totalTrades++;
-    ganancia > 0 ? trading.wins++ : trading.losses++;
+    balance      += ganancia;
+    totalProfit  += ganancia;
+    totalTrades++;
+    ganancia > 0 ? wins++ : losses++;
 
-    // Verificar límites de Stop Win / Stop Loss
-    checkStopLimits();
-
-    // Si un límite fue disparado, NO continuar con el flujo normal
-    if (stopLimits.triggered) {
-        updateTradingDisplay();
-        if (el.winRate) el.winRate.textContent =
-            `${trading.totalTrades > 0 ? Math.round(trading.wins / trading.totalTrades * 100) : 0}%`;
-        if (ganancia > 0) {
-            notify('¡Operación Ganadora!', `+$${ganancia.toFixed(2)} | Balance: $${trading.balance.toFixed(2)}`, 'success');
-            playSound('win');
-        } else {
-            notify('Operación Perdedora', `-$${Math.abs(ganancia).toFixed(2)} | Balance: $${trading.balance.toFixed(2)}`, 'error');
-            playSound('loss');
-        }
-        el.tradeStatus.textContent = 'DETENIDO';
-        el.tradeStatus.style.color = '#e74c3c';
-        return;
-    }
-
-    if (el.lastTrade) {
-        el.lastTrade.innerHTML = ganancia > 0
+    if (lastTradeEl) {
+        lastTradeEl.innerHTML = ganancia > 0
             ? `<span style="color:#27ae60">CALL +$${ganancia.toFixed(2)}</span>`
             : `<span style="color:#e74c3c">PUT -$${Math.abs(ganancia).toFixed(2)}</span>`;
     }
 
     updateTradingDisplay();
-    if (el.winRate) el.winRate.textContent =
-        `${trading.totalTrades > 0 ? Math.round(trading.wins / trading.totalTrades * 100) : 0}%`;
+    if (winRateEl) winRateEl.textContent = `${totalTrades > 0 ? Math.round(wins / totalTrades * 100) : 0}%`;
 
-    el.tradeStatus.textContent = 'LISTO';
-    el.tradeStatus.style.color = '#27ae60';
+    tradeStatusEl.textContent = 'LISTO';
+    tradeStatusEl.style.color = '#27ae60';
 
     if (ganancia > 0) {
-        notify('¡Operación Ganadora!', `+$${ganancia.toFixed(2)} | Balance: $${trading.balance.toFixed(2)}`, 'success');
-        playSound('win');
+        showNotification('¡Operación Ganadora!', `+$${ganancia.toFixed(2)} | Balance: $${balance.toFixed(2)}`, 'success');
+        if (soundAlertsEnabled) playAlertSound('win');
     } else {
-        notify('Operación Perdedora', `-$${Math.abs(ganancia).toFixed(2)} | Balance: $${trading.balance.toFixed(2)}`, 'error');
-        playSound('loss');
+        showNotification('Operación Perdedora', `-$${Math.abs(ganancia).toFixed(2)} | Balance: $${balance.toFixed(2)}`, 'error');
+        if (soundAlertsEnabled) playAlertSound('loss');
     }
 
-    // Reanudar estrategia
-    strategy.paused = false;
-    strategy.buffer = [];
-    setStrategyStatusBar('resumed', 'Resultado recibido — Buscando nuevo patrón');
-    notifyInternal('🔍 Análisis reanudado', 'Buscando nuevo patrón de 5 dígitos...', 'success');
+    // Verificar Stop Win / Stop Loss ANTES de reanudar estrategia
+    const stopped = checkStopConditions();
+
+    if (!stopped) {
+        strategyPaused = false;
+        strategyBuffer = [];
+        setStrategyStatusBar('resumed', 'Resultado recibido — Buscando nuevo patrón');
+        showInternalNotification('🔍 Análisis reanudado', 'Buscando nuevo patrón de 5 dígitos...', 'success');
+    }
 }
 
 function updateTradingDisplay() {
-    if (el.balanceAmount) el.balanceAmount.textContent = `$${trading.balance.toFixed(2)}`;
-    if (el.totalProfit) {
-        el.totalProfit.textContent = `$${trading.totalProfit > 0 ? '+' : ''}${trading.totalProfit.toFixed(2)}`;
-        el.totalProfit.style.color = trading.totalProfit >= 0 ? '#27ae60' : '#e74c3c';
+    if (balanceEl)     balanceEl.textContent = `$${balance.toFixed(2)}`;
+    if (totalProfitEl) {
+        totalProfitEl.textContent = `$${totalProfit > 0 ? '+' : ''}${totalProfit.toFixed(2)}`;
+        totalProfitEl.style.color = totalProfit >= 0 ? '#27ae60' : '#e74c3c';
     }
-    if (el.winsCount)     el.winsCount.textContent     = trading.wins;
-    if (el.lossesCount)   el.lossesCount.textContent   = trading.losses;
-    if (el.totalTrades)   el.totalTrades.textContent   = trading.totalTrades;
+    if (winsEl)        winsEl.textContent        = wins;
+    if (lossesEl)      lossesEl.textContent       = losses;
+    if (totalTradesEl) totalTradesEl.textContent   = totalTrades;
 
     const inp = document.getElementById('trading-stake');
-    if (inp) inp.style.borderColor = parseFloat(inp.value) > trading.balance ? '#e74c3c' : '';
-
-    // Sincronizar profit en el panel de stop limits
-    updateStopLimitsUI();
+    if (inp) inp.style.borderColor = parseFloat(inp.value) > balance ? '#e74c3c' : '';
 }
 
-function mostrarResultadoOperacion(profit, status, contractId) {
-    const content = document.getElementById('result-content');
-    if (!content) return;
+// ====================== RESULTADO MODAL ======================
+function mostrarResultadoOperacion(profit, status, contract_id) {
+    const resultContent = document.getElementById('result-content');
+    if (!resultContent) return;
 
-    results.list.unshift({ profit, status, contractId, time: new Date().toLocaleTimeString(), balance: trading.balance });
-    if (results.list.length > 5) results.list.pop();
+    lastResults.unshift({ profit, status, contract_id, time: new Date().toLocaleTimeString(), balance });
+    if (lastResults.length > 5) lastResults.pop();
 
     const frag = document.createDocumentFragment();
-    for (const r of results.list) {
+    lastResults.forEach(r => {
         const div = document.createElement('div');
         div.className = 'result-section';
         div.style.cssText = `border:2px solid ${r.profit > 0 ? '#27ae60' : '#e74c3c'};border-radius:8px;padding:15px;margin-top:8px;background:rgba(255,255,255,0.04)`;
@@ -1032,7 +1131,7 @@ function mostrarResultadoOperacion(profit, status, contractId) {
                 <i class="fas fa-${r.profit > 0 ? 'trophy' : 'times-circle'}"></i>
                 ${r.profit > 0 ? 'OPERACIÓN GANADORA ✅' : 'OPERACIÓN PERDEDORA ❌'}
             </div>
-            <div class="info-line"><span style="color:#95a5a6;">Contract ID:</span><span style="font-family:monospace;">${r.contractId}</span></div>
+            <div class="info-line"><span style="color:#95a5a6;">Contract ID:</span><span style="font-family:monospace;">${r.contract_id}</span></div>
             <div class="info-line"><span style="color:#95a5a6;">Estado:</span><span>${r.status}</span></div>
             <div class="info-line"><span style="color:#95a5a6;">Resultado:</span>
                 <strong style="color:${r.profit > 0 ? '#27ae60' : '#e74c3c'};font-size:1.2rem;">
@@ -1044,164 +1143,437 @@ function mostrarResultadoOperacion(profit, status, contractId) {
                 <strong style="color:#3498db;font-size:1.1rem;">$${r.balance.toFixed(2)}</strong>
             </div>`;
         frag.appendChild(div);
-    }
-    content.innerHTML = '';
-    content.appendChild(frag);
+    });
 
+    resultContent.innerHTML = '';
+    resultContent.appendChild(frag);
     document.getElementById('result-panel').style.display = 'block';
     document.getElementById('overlay').style.display      = 'block';
 }
 
 // ====================== SISTEMA DE TICKS ======================
-
 function startTicksPerMinuteCounter() {
-    if (feed.minuteTimer) clearInterval(feed.minuteTimer);
-    feed.minuteTimer = setInterval(() => {
-        feed.ticksPerMinute = feed.ticksCounter;
-        feed.ticksCounter   = 0;
-    }, 60000);
+    if (minuteTimer) clearInterval(minuteTimer);
+    minuteTimer = setInterval(() => { ticksPerMinute = ticksCounter; ticksCounter = 0; }, 60000);
+}
+
+function addTickToHistory(price, digit, direction) {
+    ticksHistory.unshift({ price, digit, direction, time: new Date().toLocaleTimeString() });
+    if (ticksHistory.length > 10) ticksHistory.pop();
 }
 
 function updateDigitsContainer(digit, wentUp, level) {
-    if (el.digitCount)         el.digitCount.textContent         = ++feed.tickCount;
-    if (el.greenDigitCountBadge) el.greenDigitCountBadge.textContent = priceLevel.greenCount;
+    digits.push({ value: digit, up: wentUp, level });
+    if (digits.length > 10) digits.shift();
 
-    if (!el.digitsContainer) return;
+    if (digitCountEl)        digitCountEl.textContent        = digits.length;
+    if (greenDigitCountBadge) greenDigitCountBadge.textContent = greenDigitsCount;
+
+    if (!digitsContainer) return;
+
     const span = document.createElement('span');
     let cls = wentUp ? 'digit-badge digit-blue' : 'digit-badge digit-red';
-    cls += level === 'max' ? ' max-digit' : level === 'min' ? ' min-digit' : ' mid-digit';
+    if (level === 'max') cls += ' max-digit';
+    else if (level === 'min') cls += ' min-digit';
+    else cls += ' mid-digit';
     span.className   = cls;
     span.textContent = digit;
-    el.digitsContainer.insertBefore(span, el.digitsContainer.firstChild);
-    while (el.digitsContainer.children.length > 10) {
-        el.digitsContainer.removeChild(el.digitsContainer.lastChild);
+    digitsContainer.insertBefore(span, digitsContainer.firstChild);
+
+    while (digitsContainer.children.length > 10) {
+        digitsContainer.removeChild(digitsContainer.lastChild);
     }
 }
 
 // ====================== PROCESAMIENTO DE PRECIOS ======================
-
-function decimals(asset) {
-    return { R_100: 2, R_10: 3, R_25: 3, R_50: 4, R_75: 4, RDBEAR: 4, RDBULL: 4, frxEURUSD: 5, frxEURJPY: 3 }[asset] || 2;
+function obtenerDecimalesPorInstrumento(assetValue) {
+    const map = { R_100: 2, R_10: 3, R_25: 3, R_50: 4, R_75: 4, RDBEAR: 4, RDBULL: 4, frxEURUSD: 5, frxEURJPY: 3 };
+    return map[assetValue] || 2;
 }
 
-function isForex(asset) {
-    return asset === 'frxEURUSD' || asset === 'frxEURJPY';
+function esInstrumentoForex(assetValue) {
+    return assetValue === 'frxEURUSD' || assetValue === 'frxEURJPY';
 }
 
-function extractDigit(price) {
-    const xd  = decimals(feed.asset);
+function extractDigitAfterDecimal(price) {
+    const xd  = obtenerDecimalesPorInstrumento(currentAsset);
     const fmt = parseFloat(price).toFixed(xd);
-    if (isForex(feed.asset)) {
+    if (esInstrumentoForex(currentAsset)) {
         const parts = fmt.split('.');
         return parseInt(parts[1] ? parts[1].slice(-1) : '0');
     }
     return parseInt(fmt.slice(-1));
 }
 
-function procesarDigito010(digitActual, digitAnterior, wentUp) {
+function procesarDigitoConLogica010(digitActual, digitAnterior, wentUp) {
     if (digitActual !== 0) return wentUp ? parseFloat(digitActual) : -parseFloat(digitActual);
     if (digitAnterior > 5) return wentUp ? 10 : -10;
     return 0;
 }
 
-function determineTrend(currentPrice, lastPrice) {
-    if (lastPrice === null) return true;
-    const xd = decimals(feed.asset);
-    return parseFloat(parseFloat(currentPrice).toFixed(xd)) >= parseFloat(parseFloat(lastPrice).toFixed(xd));
+function determineTrend(currentPrice, lp) {
+    if (lp === null) return true;
+    const xd = obtenerDecimalesPorInstrumento(currentAsset);
+    return parseFloat(parseFloat(currentPrice).toFixed(xd)) >= parseFloat(parseFloat(lp).toFixed(xd));
 }
 
 function updateDigit(price, wentUp) {
-    const xd             = decimals(feed.asset);
+    const xd             = obtenerDecimalesPorInstrumento(currentAsset);
     const formattedPrice = parseFloat(price).toFixed(xd);
-    const digit          = extractDigit(price);
+    const digit          = extractDigitAfterDecimal(price);
     const level          = updatePriceLevel(formattedPrice);
+    const digitAnterior  = digitHistory.length > 0 ? digitHistory[digitHistory.length - 1] : null;
+    const processedVal   = procesarDigitoConLogica010(digit, digitAnterior, wentUp);
 
-    const prevDigit      = priceLevel.digitHistory.length > 0
-        ? priceLevel.digitHistory[priceLevel.digitHistory.length - 1] : null;
-    const processedVal   = procesarDigito010(digit, prevDigit, wentUp);
+    digitHistory.push(digit);
+    if (digitHistory.length > 20) digitHistory.shift();
 
-    updateDigitsChart(digit, wentUp, Math.abs(processedVal));
+    updateCanvasJSChart(digit, wentUp, Math.abs(processedVal));
     updatePriceChart(price, digit, wentUp);
     updateDigitsContainer(digit, wentUp, level);
     updateDigitBadgesWithLevel(digit, level);
 
-    feed.ticksCounter++;
-    feed.lastPrice = price;
+    tickCount++;
+    ticksCounter++;
+    addTickToHistory(formattedPrice, digit, wentUp ? 'UP' : 'DOWN');
+    lastPrice = price;
 
     feedStrategyDigit(Math.abs(processedVal), wentUp);
 
     requestAnimationFrame(() => {
-        if (el.currentDigit) {
-            el.currentDigit.textContent = digit;
-            el.currentDigit.className   = 'current-digit ' + (wentUp ? 'up' : 'down');
-            if (level === 'mid') el.currentDigit.classList.add('digit-green');
+        if (currentDigitEl) {
+            currentDigitEl.textContent = digit;
+            currentDigitEl.className   = 'current-digit ' + (wentUp ? 'up' : 'down');
+            if (level === 'mid') currentDigitEl.classList.add('digit-green');
         }
-        if (el.price) el.price.textContent = formattedPrice;
+        if (priceEl) priceEl.textContent = formattedPrice;
     });
 }
 
 // ====================== WEBSOCKET: FEED DE PRECIOS ======================
-
-window.startFeed = function () {
-    if (feed.running || feed.connecting) return;
-    feed.asset = el.assetSelector ? el.assetSelector.value : 'R_10';
+window.startFeed = function() {
+    if (running || isConnecting) return;
+    currentAsset = cachedAssetSelector ? cachedAssetSelector.value : 'R_10';
     updateConnectionStatus('Conectando...', '#f39c12');
-    feed.connecting = true;
+    isConnecting = true;
 
-    feed.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
-    feed.ws.binaryType = 'arraybuffer';
+    ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+    ws.binaryType = 'arraybuffer';
 
-    feed.ws.onopen = () => {
-        feed.connecting = false;
-        feed.ws.send(JSON.stringify({ ticks: feed.asset, subscribe: 1 }));
-        feed.running = true;
+    ws.onopen = () => {
+        isConnecting = false;
+        ws.send(JSON.stringify({ ticks: currentAsset, subscribe: 1 }));
+        running = true;
         updateConnectionStatus('Conectado', '#27ae60');
     };
 
-    feed.ws.onmessage = msg => {
+    ws.onmessage = msg => {
         const data = JSON.parse(msg.data);
         if (data.tick) {
             const price  = parseFloat(data.tick.quote).toFixed(6);
-            const wentUp = determineTrend(price, feed.lastPrice);
+            const wentUp = determineTrend(price, lastPrice);
             updateDigit(price, wentUp);
         }
     };
 
-    feed.ws.onclose = () => {
-        feed.running    = false;
-        feed.connecting = false;
+    ws.onclose = () => {
+        running      = false;
+        isConnecting = false;
         updateConnectionStatus('Desconectado', '#e74c3c');
-        if (!feed.manualStop) {
-            setTimeout(() => { if (!feed.running && !feed.connecting) window.startFeed(); }, 5000);
-        }
+        setTimeout(() => { if (!running && !isConnecting) window.startFeed(); }, 5000);
     };
 
-    feed.ws.onerror = () => {
-        feed.connecting = false;
+    ws.onerror = () => {
+        isConnecting = false;
         updateConnectionStatus('Error de conexión', '#e74c3c');
     };
 };
 
-window.stopFeed = function () {
-    feed.manualStop = true;
-    if (feed.ws) { feed.ws.onclose = null; feed.ws.close(); }
-    feed.running    = false;
-    feed.connecting = false;
+window.stopFeed = function() {
+    if (ws) { ws.onclose = null; ws.close(); }
+    running      = false;
+    isConnecting = false;
     updateConnectionStatus('Desconectado', '#e74c3c');
-    setTimeout(() => { feed.manualStop = false; }, 100);
 };
 
-// ====================== DERIV API ======================
+// ====================== ESTRATEGIA CARTESIANA (PATRÓN 5 DÍGITOS) ======================
+let strategyBuffer  = [];
+let signalCalls     = 0;
+let signalPuts      = 0;
+let signalNone      = 0;
+let strategyPaused  = false;
 
-function operarAutomatico(signal, stake) {
-    if (!trading.derivWs || trading.derivWs.readyState !== WebSocket.OPEN) {
-        conectarDerivAPI();
-        setTimeout(() => operarAutomatico(signal, stake), 3000);
+// Cache de elementos de estrategia
+let patternDigitsRow, blueDirEl, redDirEl, blueDigitsEl, redDigitsEl;
+let strategySignalBox, signalIconEl, signalTextEl, signalDetailEl;
+let signalsHistoryEl, signalCallsEl, signalPutsEl, signalNoneEl;
+
+function initStrategyElements() {
+    patternDigitsRow  = document.getElementById('pattern-digits-row');
+    blueDirEl         = document.getElementById('blue-direction');
+    redDirEl          = document.getElementById('red-direction');
+    blueDigitsEl      = document.getElementById('blue-digits-display');
+    redDigitsEl       = document.getElementById('red-digits-display');
+    strategySignalBox = document.getElementById('strategy-signal-box');
+    signalIconEl      = document.getElementById('signal-icon');
+    signalTextEl      = document.getElementById('signal-text');
+    signalDetailEl    = document.getElementById('signal-detail');
+    signalsHistoryEl  = document.getElementById('signals-history');
+    signalCallsEl     = document.getElementById('signal-calls');
+    signalPutsEl      = document.getElementById('signal-puts');
+    signalNoneEl      = document.getElementById('signal-none');
+}
+
+function updateStrategyStats() {
+    if (signalCallsEl) signalCallsEl.textContent = signalCalls;
+    if (signalPutsEl)  signalPutsEl.textContent  = signalPuts;
+    if (signalNoneEl)  signalNoneEl.textContent  = signalNone;
+}
+
+function highlightTradeButton(signal) {
+    const callBtn = document.querySelector('.btn-call');
+    const putBtn  = document.querySelector('.btn-put');
+    if (!callBtn || !putBtn) return;
+
+    if (signal === 'CALL') {
+        callBtn.classList.add('btn-signal-highlight');
+        putBtn.classList.remove('btn-signal-highlight');
+        setTimeout(() => callBtn.classList.remove('btn-signal-highlight'), 4000);
+    } else {
+        putBtn.classList.add('btn-signal-highlight');
+        callBtn.classList.remove('btn-signal-highlight');
+        setTimeout(() => putBtn.classList.remove('btn-signal-highlight'), 4000);
+    }
+}
+
+function feedStrategyDigit(digitValue, isBlue) {
+    strategyBuffer.push({ value: digitValue, blue: isBlue });
+    if (strategyBuffer.length > 5) strategyBuffer.shift();
+    if (strategyPaused) return;
+    runStrategyAnalysis();
+}
+
+function setStrategyStatusBar(state, message) {
+    if (!strategySignalBox) return;
+    if (state === 'paused') {
+        strategySignalBox.className = 'strategy-signal-box signal-paused';
+        if (signalIconEl)   signalIconEl.innerHTML    = '<i class="fas fa-pause-circle"></i>';
+        if (signalTextEl)   signalTextEl.textContent  = 'ANÁLISIS PAUSADO';
+        if (signalDetailEl) signalDetailEl.textContent = message || 'Esperando resultado de operación...';
+    } else if (state === 'resumed') {
+        strategySignalBox.className = 'strategy-signal-box signal-none';
+        if (signalIconEl)   signalIconEl.innerHTML    = '<i class="fas fa-search"></i>';
+        if (signalTextEl)   signalTextEl.textContent  = 'ANALIZANDO...';
+        if (signalDetailEl) signalDetailEl.textContent = message || 'Buscando nuevo patrón de 5 dígitos';
+        if (patternDigitsRow) patternDigitsRow.innerHTML = '<div class="pattern-placeholder">Esperando dígitos...</div>';
+        if (blueDigitsEl)  blueDigitsEl.textContent  = '-';
+        if (redDigitsEl)   redDigitsEl.textContent   = '-';
+        if (blueDirEl)     blueDirEl.textContent     = '—';
+        if (redDirEl)      redDirEl.textContent      = '—';
+    }
+}
+
+function updateConnectionStatus(text, color) {
+    if (statusText) { statusText.textContent = text; statusText.style.color = color; }
+    if (statusDot)  statusDot.style.backgroundColor = color;
+}
+
+function analyzeSequence(values) {
+    if (values.length < 2) return null;
+    const unique = new Set(values);
+    if (unique.size !== values.length) return null;
+
+    let isStrictlyUp   = true;
+    let isStrictlyDown = true;
+
+    for (let i = 1; i < values.length; i++) {
+        if (values[i] <= values[i - 1]) isStrictlyUp   = false;
+        if (values[i] >= values[i - 1]) isStrictlyDown = false;
+    }
+
+    if (isStrictlyUp)   return 'up';
+    if (isStrictlyDown) return 'down';
+    return null;
+}
+
+function toMarketDirection(numericDir, isBlue) {
+    if (numericDir === null) return null;
+    if (isBlue) return numericDir === 'up' ? 'alcista' : 'bajista';
+    else        return numericDir === 'down' ? 'alcista' : 'bajista';
+}
+
+function runStrategyAnalysis() {
+    if (!patternDigitsRow) return;
+
+    const buf = strategyBuffer.slice(-5);
+
+    if (patternDigitsRow) {
+        patternDigitsRow.innerHTML = '';
+        if (buf.length < 5) {
+            patternDigitsRow.innerHTML = `<div class="pattern-placeholder">Esperando ${5 - buf.length} dígito(s) más...</div>`;
+        } else {
+            buf.forEach(d => {
+                const span = document.createElement('span');
+                span.className = d.blue ? 'pattern-digit-badge blue' : 'pattern-digit-badge red';
+                span.textContent = d.value;
+                patternDigitsRow.appendChild(span);
+            });
+        }
+    }
+
+    if (buf.length < 5) {
+        setSignalUI('none', 'ESPERANDO', `Necesito ${5 - buf.length} dígito(s) más`, false);
+        if (blueDigitsEl) blueDigitsEl.textContent = '-';
+        if (redDigitsEl)  redDigitsEl.textContent  = '-';
+        if (blueDirEl)    blueDirEl.textContent     = '—';
+        if (redDirEl)     redDirEl.textContent      = '—';
         return;
     }
 
-    const symbol = el.assetSelector ? el.assetSelector.value : 'R_10';
-    trading.derivWs.send(JSON.stringify({
+    const blues = buf.filter(d =>  d.blue);
+    const reds  = buf.filter(d => !d.blue);
+
+    const esPatronCALL = (reds.length === 3 && blues.length === 2);
+    const esPatronPUT  = (blues.length === 3 && reds.length === 2);
+
+    if (blueDigitsEl) blueDigitsEl.textContent = blues.length
+        ? `${blues.map(d => d.value).join(' → ')}  (${blues.length})`
+        : 'Ninguno (0)';
+    if (redDigitsEl) redDigitsEl.textContent = reds.length
+        ? `${reds.map(d => d.value).join(' → ')}  (${reds.length})`
+        : 'Ninguno (0)';
+
+    if (!esPatronCALL && !esPatronPUT) {
+        const blueNumDir = blues.length >= 2 ? analyzeSequence(blues.map(d => d.value)) : null;
+        const redNumDir  = reds.length  >= 2 ? analyzeSequence(reds.map(d  => d.value)) : null;
+        updateDirEl(blueDirEl, blueNumDir === null ? null : toMarketDirection(blueNumDir, true),  blues.length);
+        updateDirEl(redDirEl,  redNumDir  === null ? null : toMarketDirection(redNumDir,  false), reds.length);
+        setSignalUI('none', 'PROPORCIÓN INVÁLIDA',
+            `Rojos: ${reds.length} | Azules: ${blues.length} — Se requiere 3R+2A (CALL) o 3A+2R (PUT)`, true);
+        return;
+    }
+
+    const blueNumDir = blues.length >= 2 ? analyzeSequence(blues.map(d => d.value)) : (blues.length === 1 ? 'one' : null);
+    const redNumDir  = reds.length  >= 2 ? analyzeSequence(reds.map(d  => d.value)) : (reds.length  === 1 ? 'one' : null);
+
+    const blueMarket = blueNumDir === 'one' ? null : toMarketDirection(blueNumDir, true);
+    const redMarket  = redNumDir  === 'one' ? null : toMarketDirection(redNumDir, false);
+
+    updateDirEl(blueDirEl, blueMarket, blues.length);
+    updateDirEl(redDirEl,  redMarket,  reds.length);
+
+    if (blueMarket === null && redMarket === null) {
+        setSignalUI('none', 'SIN SEÑAL', 'No hay dirección clara en ningún grupo', true);
+    } else if (blueMarket === null) {
+        setSignalUI('none', 'SIN SEÑAL', 'Dígitos azules sin dirección clara (retroceso o repetición)', true);
+    } else if (redMarket === null) {
+        setSignalUI('none', 'SIN SEÑAL', 'Dígitos rojos sin dirección clara (retroceso o repetición)', true);
+    } else if (blueMarket === redMarket) {
+        const isCall = blueMarket === 'alcista';
+        const proporcionOk = isCall ? esPatronCALL : esPatronPUT;
+        if (proporcionOk) {
+            setSignalUI(isCall ? 'call' : 'put',
+                isCall ? '🟢 CALL — ALCISTA' : '🔴 PUT — BAJISTA',
+                `Proporción ${isCall ? '3R+2A' : '3A+2R'} ✓ | Azules: ${blueMarket} | Rojos: ${redMarket}`,
+                true, isCall ? 'CALL' : 'PUT');
+        } else {
+            setSignalUI('none', 'PROPORCIÓN CONFLICTO',
+                `Dirección ${blueMarket} pero proporción no coincide (R:${reds.length} A:${blues.length})`, true);
+        }
+    } else {
+        setSignalUI('none', 'CONFLICTO', `Azules: ${blueMarket} vs Rojos: ${redMarket}`, true);
+    }
+}
+
+function updateDirEl(el, marketDir, count) {
+    if (!el) return;
+    if (count < 2) {
+        el.textContent = count === 0 ? '—' : 'Solo 1 dígito';
+        el.className   = 'analysis-direction neutral';
+        return;
+    }
+    if (marketDir === 'alcista') {
+        el.textContent = '▲ ALCISTA';
+        el.className   = 'analysis-direction bullish';
+    } else if (marketDir === 'bajista') {
+        el.textContent = '▼ BAJISTA';
+        el.className   = 'analysis-direction bearish';
+    } else {
+        el.textContent = '⚠ SIN DIRECCIÓN';
+        el.className   = 'analysis-direction neutral';
+    }
+}
+
+function setSignalUI(type, text, detail, addToHistory, tradeSignal) {
+    if (!strategySignalBox) return;
+
+    strategySignalBox.className = 'strategy-signal-box signal-' + type;
+    if (signalTextEl)   signalTextEl.textContent   = text;
+    if (signalDetailEl) signalDetailEl.textContent = detail;
+
+    if (type === 'call') {
+        if (signalIconEl) signalIconEl.innerHTML = '<i class="fas fa-arrow-up"></i>';
+    } else if (type === 'put') {
+        if (signalIconEl) signalIconEl.innerHTML = '<i class="fas fa-arrow-down"></i>';
+    } else {
+        if (signalIconEl) signalIconEl.innerHTML = '<i class="fas fa-minus-circle"></i>';
+    }
+
+    if (addToHistory && tradeSignal) {
+        if (tradeSignal === 'CALL') signalCalls++;
+        else if (tradeSignal === 'PUT') signalPuts++;
+
+        addSignalToHistory(type, text, detail);
+        updateStrategyStats();
+        highlightTradeButton(tradeSignal);
+        playAlertSound('signal');
+        showInternalNotification(
+            '📊 Señal detectada — Operando automáticamente',
+            `${text} — ${detail}`,
+            type === 'call' ? 'success' : 'error'
+        );
+
+        // Ejecutar operación solo si no hay stop activado
+        if (!isTrading && running && !stopTriggered) {
+            strategyPaused = true;
+            strategyBuffer = [];
+            setStrategyStatusBar('paused', `⏳ OPERACIÓN ${tradeSignal} EN CURSO — Análisis pausado`);
+            window.executeTrade(tradeSignal);
+        } else if (stopTriggered) {
+            showInternalNotification(
+                '🛑 Sistema detenido',
+                'Stop Win/Loss activo — señal ignorada.',
+                'warning'
+            );
+        }
+    } else if (addToHistory && type === 'none') {
+        signalNone++;
+        updateStrategyStats();
+    }
+}
+
+function addSignalToHistory(type, text, detail) {
+    if (!signalsHistoryEl) return;
+    const item = document.createElement('div');
+    item.className = 'signal-history-item signal-hist-' + type;
+    const time = new Date().toLocaleTimeString();
+    item.innerHTML = `<span class="sig-time">${time}</span><span class="sig-label">${text}</span><span class="sig-detail">${detail}</span>`;
+    signalsHistoryEl.insertBefore(item, signalsHistoryEl.firstChild);
+    while (signalsHistoryEl.children.length > 10) {
+        signalsHistoryEl.removeChild(signalsHistoryEl.lastChild);
+    }
+}
+
+// ====================== DERIV API ======================
+window.operarAutomatico = function(signal, stake) {
+    if (!derivWs || derivWs.readyState !== WebSocket.OPEN) {
+        conectarDerivAPI();
+        setTimeout(() => window.operarAutomatico(signal, stake), 3000);
+        return;
+    }
+
+    const symbol = cachedAssetSelector ? cachedAssetSelector.value : 'R_10';
+    derivWs.send(JSON.stringify({
         buy: 1,
         price: stake,
         parameters: {
@@ -1211,41 +1583,42 @@ function operarAutomatico(signal, stake) {
             currency: 'USD',
             duration: DURATION,
             duration_unit: 't',
-            symbol,
-        },
+            symbol
+        }
     }));
-}
+};
 
 function conectarDerivAPI() {
-    if (!trading.token) return;
+    if (!DERIV_API_TOKEN) return;
 
-    trading.derivWs = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
+    derivWs = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
+    window.derivWs = derivWs;
 
-    trading.derivWs.onopen = () => {
-        trading.derivWs.send(JSON.stringify({ authorize: trading.token }));
+    derivWs.onopen = () => {
+        derivWs.send(JSON.stringify({ authorize: DERIV_API_TOKEN }));
     };
 
-    trading.derivWs.onmessage = msg => {
+    derivWs.onmessage = (msg) => {
         const data = JSON.parse(msg.data);
 
         if (data.authorize) {
-            trading.derivWs.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+            derivWs.send(JSON.stringify({ balance: 1, subscribe: 1 }));
         }
 
         if (data.buy && data.buy.contract_id) {
-            const contractId = data.buy.contract_id;
-            const stake      = parseFloat(data.buy.buy_price);
-            trading.currentContract = { contractId, stake, timestamp: Date.now(), status: 'open' };
-            // El balance es actualizado por el evento data.balance de la API; no se ajusta manualmente.
+            const contract_id = data.buy.contract_id;
+            const stake       = parseFloat(data.buy.buy_price);
+            currentContract   = { contract_id, stake, timestamp: Date.now(), status: 'open' };
+            balance -= stake;
             updateTradingDisplay();
-            trading.derivWs.send(JSON.stringify({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 }));
+            derivWs.send(JSON.stringify({ proposal_open_contract: 1, contract_id, subscribe: 1 }));
         }
 
         if (data.proposal_open_contract) {
             const contract = data.proposal_open_contract;
 
-            if (contract.contract_id === trading.currentContract?.contractId && !monitor.activeTrade && contract.entry_tick) {
-                startTradeMonitor(
+            if (contract.contract_id === currentContract?.contract_id && !activeTrade && contract.entry_tick) {
+                startTradeMonitorWithRealData(
                     contract.contract_id,
                     contract.contract_type,
                     parseFloat(contract.entry_tick),
@@ -1254,643 +1627,56 @@ function conectarDerivAPI() {
                 );
             }
 
-            if (contract.tick_stream && contract.tick_stream.length > 0 && monitor.activeTrade && monitor.activeTrade.id === contract.contract_id) {
-                const ticks = contract.tick_stream.map(t => ({
-                    price: parseFloat(t.tick),
-                    timestamp: t.tick_time * 1000,
-                    tick_index: t.tick_count || t.tick_index || 1,
+            if (contract.tick_stream && contract.tick_stream.length > 0 && activeTrade && activeTrade.id === contract.contract_id) {
+                contractTicks = contract.tick_stream.map(t => ({
+                    price: parseFloat(t.tick), timestamp: t.tick_time * 1000, tick_index: t.tick_count || t.tick_index || 1
                 }));
-                if (ticks.length > 0) updateMonitorWithTicks(ticks);
+                if (contractTicks.length > 0) updateMonitorWithRealData(contractTicks);
             }
 
             if (contract.is_sold) {
-                const profit     = parseFloat(contract.profit);
-                const exitTick   = parseFloat(contract.exit_tick);
-                const contractId = contract.contract_id;
+                const profit      = parseFloat(contract.profit);
+                const exitTick    = parseFloat(contract.exit_tick);
+                const contract_id = contract.contract_id;
 
-                if (monitor.activeTrade && monitor.activeTrade.id === contractId) {
-                    monitor.activeTrade.currentPrice = exitTick;
-                    monitor.activeTrade.profitLoss   = profit;
-                    monitor.activeTrade.isWinning    = profit > 0;
-                    monitor.contractTicks.push({ price: exitTick, timestamp: Date.now(), tick_index: 5 });
-                    updateMonitorWithTicks(monitor.contractTicks);
+                if (activeTrade && activeTrade.id === contract_id) {
+                    activeTrade.currentPrice = exitTick;
+                    activeTrade.profitLoss   = profit;
+                    activeTrade.isWinning    = profit > 0;
+                    contractTicks.push({ price: exitTick, timestamp: Date.now(), tick_index: 5 });
+                    updateMonitorWithRealData(contractTicks);
                 }
 
-                const savedStatus = contract.status;
-                setTimeout(() => {
-                    procesarResultado(profit);
-                    mostrarResultadoOperacion(profit, savedStatus, contractId);
-                }, 0);
-
-                trading.derivWs.send(JSON.stringify({ proposal_open_contract: 0, contract_id: contractId, subscribe: 0 }));
-                trading.currentContract = null;
+                procesarResultadoTrading(profit);
+                mostrarResultadoOperacion(profit, contract.status, contract_id);
+                derivWs.send(JSON.stringify({ proposal_open_contract: 0, contract_id, subscribe: 0 }));
+                currentContract = null;
             }
         }
 
         if (data.balance) {
-            trading.balance = parseFloat(data.balance.balance);
+            balance = parseFloat(data.balance.balance);
             updateTradingDisplay();
         }
 
         if (data.error) {
             if (data.error.code === 'ContractBuyValidation' || data.error.code === 'InvalidContract') {
-                // El balance es manejado por la API; no se ajusta manualmente.
-                trading.isTrading = false;
-                el.tradeStatus.textContent = 'ERROR';
-                el.tradeStatus.style.color = '#e74c3c';
+                if (currentContract) balance += currentContract.stake;
+                isTrading = false;
+                tradeStatusEl.textContent = 'ERROR';
+                tradeStatusEl.style.color = '#e74c3c';
                 stopTradeMonitor();
-                setTimeout(() => { el.tradeStatus.textContent = 'LISTO'; el.tradeStatus.style.color = '#27ae60'; }, 3000);
-                trading.currentContract = null;
+                setTimeout(() => { tradeStatusEl.textContent = 'LISTO'; tradeStatusEl.style.color = '#27ae60'; }, 3000);
+                currentContract = null;
                 updateTradingDisplay();
             }
         }
     };
 
-    trading.derivWs.onerror = () => {};
+    derivWs.onerror = () => {};
 
-    trading.derivWs.onclose = () => {
-        trading.currentContract = null;
-        if (trading.token) setTimeout(conectarDerivAPI, 5000);
+    derivWs.onclose = () => {
+        currentContract = null;
+        if (DERIV_API_TOKEN) setTimeout(conectarDerivAPI, 5000);
     };
-}
-
-// ====================== ESTRATEGIA CARTESIANA ======================
-
-function feedStrategyDigit(digitValue, isBlue) {
-    strategy.buffer.push({ value: digitValue, blue: isBlue });
-    if (strategy.buffer.length > 5) strategy.buffer.shift();
-    if (strategy.paused) return;
-    runStrategyAnalysis();
-}
-
-function runStrategyAnalysis() {
-    const patternEl = el.patternDigitsRow;
-    if (!patternEl) return;
-
-    const buf = strategy.buffer.slice(-5);
-
-    // Renderizar patrón actual
-    patternEl.innerHTML = '';
-    if (buf.length < 5) {
-        patternEl.innerHTML = `<div class="pattern-placeholder">Esperando ${5 - buf.length} dígito(s) más...</div>`;
-    } else {
-        for (const d of buf) {
-            const span = document.createElement('span');
-            span.className   = d.blue ? 'pattern-digit-badge blue' : 'pattern-digit-badge red';
-            span.textContent = d.value;
-            patternEl.appendChild(span);
-        }
-    }
-
-    if (buf.length < 5) {
-        resetFilters();
-        setSignalUI('none', 'ESPERANDO', `Necesito ${5 - buf.length} dígito(s) más`, false);
-        if (el.blueDigitsDisplay) el.blueDigitsDisplay.textContent = '-';
-        if (el.redDigitsDisplay)  el.redDigitsDisplay.textContent  = '-';
-        if (el.blueDirection)     el.blueDirection.textContent      = '—';
-        if (el.redDirection)      el.redDirection.textContent       = '—';
-        return;
-    }
-
-    const blues = buf.filter(d =>  d.blue);
-    const reds  = buf.filter(d => !d.blue);
-
-    // Proporción 3:2
-    const esCALL = reds.length === 3 && blues.length === 2;
-    const esPUT  = blues.length === 3 && reds.length === 2;
-
-    if (el.blueDigitsDisplay) el.blueDigitsDisplay.textContent =
-        blues.length ? `${blues.map(d => d.value).join(' → ')}  (${blues.length})` : 'Ninguno (0)';
-    if (el.redDigitsDisplay) el.redDigitsDisplay.textContent =
-        reds.length  ? `${reds.map(d => d.value).join(' → ')}  (${reds.length})`   : 'Ninguno (0)';
-
-    if (!esCALL && !esPUT) {
-        resetFilters();
-        const blueNumDir = blues.length >= 2 ? analyzeSequence(blues.map(d => d.value)) : null;
-        const redNumDir  = reds.length  >= 2 ? analyzeSequence(reds.map(d  => d.value)) : null;
-        updateDirEl(el.blueDirection, blueNumDir === null ? null : toMarketDir(blueNumDir, true),  blues.length);
-        updateDirEl(el.redDirection,  redNumDir  === null ? null : toMarketDir(redNumDir,  false), reds.length);
-        setSignalUI('none', 'PROPORCIÓN INVÁLIDA',
-            `Rojos: ${reds.length} | Azules: ${blues.length} — Se requiere 3R+2A (CALL) o 3A+2R (PUT)`, true);
-        return;
-    }
-
-    const blueNumDir = blues.length >= 2 ? analyzeSequence(blues.map(d => d.value)) : (blues.length === 1 ? 'one' : null);
-    const redNumDir  = reds.length  >= 2 ? analyzeSequence(reds.map(d  => d.value)) : (reds.length  === 1 ? 'one' : null);
-
-    const blueMarket = blueNumDir === 'one' ? null : toMarketDir(blueNumDir, true);
-    const redMarket  = redNumDir  === 'one' ? null : toMarketDir(redNumDir,  false);
-
-    updateDirEl(el.blueDirection, blueMarket, blues.length);
-    updateDirEl(el.redDirection,  redMarket,  reds.length);
-
-    if (blueMarket === null && redMarket === null) {
-        resetFilters(); setSignalUI('none', 'SIN SEÑAL', 'No hay dirección clara en ningún grupo', true); return;
-    }
-    if (blueMarket === null) {
-        resetFilters(); setSignalUI('none', 'SIN SEÑAL', 'Dígitos azules sin dirección clara (retroceso o repetición)', true); return;
-    }
-    if (redMarket === null) {
-        resetFilters(); setSignalUI('none', 'SIN SEÑAL', 'Dígitos rojos sin dirección clara (retroceso o repetición)', true); return;
-    }
-    if (blueMarket !== redMarket) {
-        resetFilters(); setSignalUI('none', 'CONFLICTO', `Azules: ${blueMarket} vs Rojos: ${redMarket}`, true); return;
-    }
-
-    const isCall       = blueMarket === 'alcista';
-    const proporcionOk = isCall ? esCALL : esPUT;
-
-    if (!proporcionOk) {
-        resetFilters();
-        setSignalUI('none', 'PROPORCIÓN CONFLICTO',
-            `Dirección ${blueMarket} pero proporción no coincide (R:${reds.length} A:${blues.length})`, true);
-        return;
-    }
-
-    // Filtros de confirmación
-    if (el.filtersSection) el.filtersSection.style.display = 'block';
-
-    const dominantGroup = isCall ? reds  : blues;
-    const minorityGroup = isCall ? blues : reds;
-
-    // Rojos/Azules en orden de aparición en el buffer (para Filtro 5)
-    const redsInOrder  = buf.filter(d => !d.blue);
-    const bluesInOrder = buf.filter(d =>  d.blue);
-
-    const f1 = applyFilter1(isCall, dominantGroup);
-    const f2 = applyFilter2(isCall, minorityGroup);
-    const f3 = applyFilter3(isCall, dominantGroup);
-    const f4 = applyFilter4(buf);
-    const f5 = isCall ? applyFilter5(redsInOrder, true) : applyFilter5(bluesInOrder, false);
-    const f6 = applyFilter6(isCall, blues, reds);
-
-    if (f1 && f2 && f3 && f4 && f5 && f6) {
-        setSignalUI(isCall ? 'call' : 'put',
-            isCall ? '🟢 CALL — ALCISTA' : '🔴 PUT — BAJISTA',
-            `Proporción ${isCall ? '3R+2A' : '3A+2R'} ✓ | Dirección ✓ | Filtros F1+F2+F3+F4+F5+F6 ✓`,
-            true, isCall ? 'CALL' : 'PUT');
-    } else {
-        const failed = [!f1 && 'F1', !f2 && 'F2', !f3 && 'F3', !f4 && 'F4', !f5 && 'F5', !f6 && 'F6'].filter(Boolean).join(', ');
-        setSignalUI('none', 'FILTROS NO SUPERADOS',
-            `Dirección ${blueMarket} ✓ | Proporción ✓ | Bloqueado por: ${failed}`, true);
-    }
-}
-
-/**
- * Analiza si la secuencia de valores es estrictamente monotónica.
- * Retorna: 'up' | 'down' | null
- */
-function analyzeSequence(values) {
-    if (values.length < 2) return null;
-    if (new Set(values).size !== values.length) return null; // sin repeticiones
-
-    let up = true, down = true;
-    for (let i = 1; i < values.length; i++) {
-        if (values[i] <= values[i - 1]) up   = false;
-        if (values[i] >= values[i - 1]) down = false;
-    }
-    return up ? 'up' : down ? 'down' : null;
-}
-
-/**
- * Convierte dirección numérica en dirección de mercado según tipo de dígito.
- * Azules: subida = alcista. Rojos: subida = bajista (invertido).
- */
-function toMarketDir(numericDir, isBlue) {
-    if (numericDir === null) return null;
-    return isBlue
-        ? (numericDir === 'up' ? 'alcista' : 'bajista')
-        : (numericDir === 'down' ? 'alcista' : 'bajista');
-}
-
-// ====================== FILTROS DE CONFIRMACIÓN ======================
-
-/**
- * Filtro 1 — Valor del último dígito del grupo dominante.
- * CALL (dominante=rojos): último rojo ≤ 5 → agotamiento bajista.
- * PUT  (dominante=azules): último azul ≤ 5 → agotamiento alcista.
- */
-function applyFilter1(isCall, dominantGroup) {
-    const lastVal = dominantGroup[dominantGroup.length - 1].value;
-    const pass    = lastVal <= 5;
-    const tipo    = isCall ? 'rojo' : 'azul';
-    const msg     = pass
-        ? `Último ${tipo} = ${lastVal} ≤ 5 ✓ Agotamiento confirmado`
-        : `Último ${tipo} = ${lastVal} ≥ 6 ✗ Grupo dominante aún fuerte`;
-    setFilterUI('filter1', pass, msg);
-    return pass;
-}
-
-/**
- * Filtro 2 — Amplitud del grupo minoritario (2 dígitos).
- * Diferencia entre mayor y menor del grupo ≤ 6.
- */
-function applyFilter2(isCall, minorityGroup) {
-    const vals = minorityGroup.map(d => d.value);
-    const diff = Math.max(...vals) - Math.min(...vals);
-    const pass = diff <= 6;
-    const tipo = isCall ? 'azules' : 'rojos';
-    const msg  = pass
-        ? `Amplitud ${tipo} = ${diff} ≤ 6 ✓ Movimiento controlado`
-        : `Amplitud ${tipo} = ${diff} > 6 ✗ Sobreextensión detectada`;
-    setFilterUI('filter2', pass, msg);
-    return pass;
-}
-
-/**
- * Filtro 3 — Convergencia del grupo dominante (3 dígitos).
- * CALL: último rojo < primero (descenso progresivo).
- * PUT:  último azul > primero (ascenso progresivo).
- */
-function applyFilter3(isCall, dominantGroup) {
-    const firstVal = dominantGroup[0].value;
-    const lastVal  = dominantGroup[dominantGroup.length - 1].value;
-    const pass = isCall ? lastVal < firstVal : lastVal > firstVal;
-    const msg  = isCall
-        ? (pass
-            ? `Rojos: ${firstVal}→…→${lastVal} ✓ Descenso progresivo confirmado`
-            : `Rojos: ${firstVal}→…→${lastVal} ✗ Sin convergencia descendente`)
-        : (pass
-            ? `Azules: ${firstVal}→…→${lastVal} ✓ Ascenso progresivo confirmado`
-            : `Azules: ${firstVal}→…→${lastVal} ✗ Sin convergencia ascendente`);
-    setFilterUI('filter3', pass, msg);
-    return pass;
-}
-
-/**
- * Filtro 4 — Sin dígito 0 en el patrón.
- * Ninguno de los 5 dígitos (rojos o azules) puede ser 0.
- * Un dígito 0 distorsiona la escala y anula la señal.
- */
-function applyFilter4(buf) {
-    const hasZero = buf.some(d => d.value === 0);
-    const pass    = !hasZero;
-    const msg     = pass
-        ? 'Ningún dígito es 0 ✓ Patrón limpio'
-        : `Dígito 0 detectado en el patrón ✗ Señal anulada`;
-    setFilterUI('filter4', pass, msg);
-    return pass;
-}
-
-/**
- * Filtro 5 — Agotamiento por pasos en el grupo dominante.
- * CALL: se analizan los 3 dígitos rojos en orden de aparición.
- *   Paso 1 = rojo[0] - rojo[1]
- *   Paso 2 = rojo[1] - rojo[2]
- *   Condición: Paso 2 < Paso 1  →  agotamiento bajista confirmado.
- * PUT: misma lógica pero sobre los 3 dígitos azules en orden de aparición.
- *   Paso 1 = azul[0] - azul[1]
- *   Paso 2 = azul[1] - azul[2]
- *   Condición: Paso 2 < Paso 1  →  agotamiento alcista confirmado.
- */
-function applyFilter5(dominantGroup, isCall) {
-    const colorName = isCall ? 'Rojos' : 'Azules';
-    if (dominantGroup.length !== 3) {
-        setFilterUI('filter5', null, `F5 no aplica (se necesitan exactamente 3 ${colorName.toLowerCase()})`);
-        return true;
-    }
-    const d0 = dominantGroup[0].value;
-    const d1 = dominantGroup[1].value;
-    const d2 = dominantGroup[2].value;
-    const paso1 = d0 - d1;
-    const paso2 = d1 - d2;
-    const pass  = paso2 < paso1;
-    const msg   = pass
-        ? `${colorName}: ${d0}→${d1}→${d2} | Paso1=${paso1} Paso2=${paso2} → ${paso2}<${paso1} ✓ Agotamiento confirmado`
-        : `${colorName}: ${d0}→${d1}→${d2} | Paso1=${paso1} Paso2=${paso2} → ${paso2}≥${paso1} ✗ Sin agotamiento`;
-    setFilterUI('filter5', pass, msg);
-    return pass;
-}
-
-/**
- * Filtro 6 — Sin dígito 9 en el grupo minoritario de la señal.
- * CALL (azules = minoría): si algún dígito azul es 9 → no se opera.
- * PUT  (rojos  = minoría): si algún dígito rojo  es 9 → no se opera.
- */
-function applyFilter6(isCall, blues, reds) {
-    const group     = isCall ? blues : reds;
-    const colorName = isCall ? 'azul' : 'rojo';
-    const hasNine   = group.some(d => d.value === 9);
-    const pass      = !hasNine;
-    const msg       = pass
-        ? `Ningún dígito ${colorName} es 9 ✓ Patrón válido`
-        : `Dígito 9 detectado en dígitos ${colorName}s ✗ Señal anulada`;
-    setFilterUI('filter6', pass, msg);
-    return pass;
-}
-
-function setFilterUI(filterKey, pass, msg) {
-    const itemEl = el[filterKey + 'Item'];
-    const iconEl = el[filterKey + 'Icon'];
-    const descEl = el[filterKey + 'Desc'];
-    if (!itemEl) return;
-    itemEl.className = 'filter-item ' + (pass === true ? 'filter-pass' : pass === false ? 'filter-fail' : 'filter-pending');
-    if (iconEl) iconEl.innerHTML = pass === true
-        ? '<i class="fas fa-check-circle"></i>'
-        : pass === false
-            ? '<i class="fas fa-times-circle"></i>'
-            : '<i class="fas fa-circle"></i>';
-    if (descEl) descEl.textContent = msg || '—';
-}
-
-function resetFilters() {
-    if (el.filtersSection) el.filtersSection.style.display = 'none';
-    setFilterUI('filter1', null, '—');
-    setFilterUI('filter2', null, '—');
-    setFilterUI('filter3', null, '—');
-    setFilterUI('filter4', null, '—');
-    setFilterUI('filter5', null, '—');
-    setFilterUI('filter6', null, '—');
-}
-
-// ====================== UI DE SEÑAL ======================
-
-function updateDirEl(elRef, marketDir, count) {
-    if (!elRef) return;
-    if (count < 2) {
-        elRef.textContent = count === 0 ? '—' : 'Solo 1 dígito';
-        elRef.className   = 'analysis-direction neutral';
-        return;
-    }
-    if (marketDir === 'alcista')      { elRef.textContent = '▲ ALCISTA'; elRef.className = 'analysis-direction bullish'; }
-    else if (marketDir === 'bajista') { elRef.textContent = '▼ BAJISTA'; elRef.className = 'analysis-direction bearish'; }
-    else                              { elRef.textContent = '⚠ SIN DIRECCIÓN'; elRef.className = 'analysis-direction neutral'; }
-}
-
-function setSignalUI(type, text, detail, addToHistory, tradeSignal) {
-    const box = el.strategySignalBox;
-    if (!box) return;
-
-    box.className = 'strategy-signal-box signal-' + type;
-
-    if (tradeSignal === 'PUT') {
-        if (el.signalText)   el.signalText.textContent   = text;
-        if (el.signalDetail) el.signalDetail.textContent = detail;
-    } else {
-        if (el.signalText)   el.signalText.textContent   = text;
-        if (el.signalDetail) el.signalDetail.textContent = detail;
-    }
-
-    if (el.signalIcon) {
-        el.signalIcon.innerHTML =
-            type === 'call' ? '<i class="fas fa-arrow-up"></i>'   :
-            type === 'put'  ? '<i class="fas fa-arrow-down"></i>' :
-                              '<i class="fas fa-minus-circle"></i>';
-    }
-
-    if (addToHistory && tradeSignal) {
-        if (tradeSignal === 'CALL') strategy.signalCalls++;
-        else if (tradeSignal === 'PUT') strategy.signalPuts++;
-
-        addSignalToHistory(type, text, detail);
-        updateStrategyStats();
-        playSound('signal');
-
-        if (tradeSignal === 'CALL') {
-            notifyInternal('📊 Señal CALL — Ejecutando operación', `${text} — ${detail}`, 'success');
-        } else {
-            notifyInternal('📊 Señal PUT — Ejecutando operación', `${text} — ${detail}`, 'error');
-        }
-
-        if (!trading.isTrading && feed.running && !stopLimits.triggered) {
-            if (tradeSignal === 'CALL') {
-                strategy.paused = true;
-                strategy.buffer = [];
-                setStrategyStatusBar('paused', '⏳ OPERACIÓN CALL EN CURSO — Análisis pausado');
-                window.executeTrade('CALL');
-            } else if (tradeSignal === 'PUT') {
-                strategy.paused = true;
-                strategy.buffer = [];
-                setStrategyStatusBar('paused', '⏳ OPERACIÓN PUT EN CURSO — Análisis pausado');
-                window.executeTrade('PUT');
-            }
-        }
-    } else if (addToHistory && type === 'none') {
-        strategy.signalNone++;
-        updateStrategyStats();
-    }
-}
-
-function addSignalToHistory(type, text, detail) {
-    const histEl = el.signalsHistory;
-    if (!histEl) return;
-    const item = document.createElement('div');
-    item.className = 'signal-history-item signal-hist-' + type;
-    const time = new Date().toLocaleTimeString();
-    item.innerHTML = `<span class="sig-time">${time}</span><span class="sig-label">${text}</span><span class="sig-detail">${detail}</span>`;
-    histEl.insertBefore(item, histEl.firstChild);
-    while (histEl.children.length > 10) histEl.removeChild(histEl.lastChild);
-}
-
-function updateStrategyStats() {
-    if (el.signalCalls) el.signalCalls.textContent = strategy.signalCalls;
-    if (el.signalPuts)  el.signalPuts.textContent  = strategy.signalPuts;
-    if (el.signalNone)  el.signalNone.textContent   = strategy.signalNone;
-}
-
-function setStrategyStatusBar(state, message) {
-    const box = el.strategySignalBox;
-    if (!box) return;
-    if (state === 'paused') {
-        box.className = 'strategy-signal-box signal-paused';
-        if (el.signalIcon)   el.signalIcon.innerHTML    = '<i class="fas fa-pause-circle"></i>';
-        if (el.signalText)   el.signalText.textContent  = 'ANÁLISIS PAUSADO';
-        if (el.signalDetail) el.signalDetail.textContent = message || 'Esperando resultado de operación...';
-    } else if (state === 'resumed') {
-        box.className = 'strategy-signal-box signal-none';
-        if (el.signalIcon)   el.signalIcon.innerHTML    = '<i class="fas fa-search"></i>';
-        if (el.signalText)   el.signalText.textContent  = 'ANALIZANDO...';
-        if (el.signalDetail) el.signalDetail.textContent = message || 'Buscando nuevo patrón de 5 dígitos';
-        if (el.patternDigitsRow) el.patternDigitsRow.innerHTML = '<div class="pattern-placeholder">Esperando dígitos...</div>';
-        if (el.blueDigitsDisplay) el.blueDigitsDisplay.textContent = '-';
-        if (el.redDigitsDisplay)  el.redDigitsDisplay.textContent  = '-';
-        if (el.blueDirection)     el.blueDirection.textContent     = '—';
-        if (el.redDirection)      el.redDirection.textContent      = '—';
-        resetFilters();
-    }
-}
-
-// ====================== STOP WIN / STOP LOSS ======================
-
-/**
- * Actualiza la barra de progreso de un límite.
- * @param {string} barId   - id del elemento .sl-bar-fill
- * @param {number} current - valor actual (profit para SW, -profit para SL)
- * @param {number|null} limit - límite configurado (null = desactivado)
- * @param {boolean} isWin  - true = stop win (verde), false = stop loss (rojo)
- */
-function updateProgressBar(barId, current, limit, isWin) {
-    const bar = document.getElementById(barId);
-    if (!bar) return;
-    if (limit === null || limit <= 0) {
-        bar.style.width = '0%';
-        bar.className   = 'sl-bar-fill';
-        return;
-    }
-    const pct = Math.min(100, Math.max(0, (current / limit) * 100));
-    bar.style.width = pct + '%';
-    bar.className   = 'sl-bar-fill ' + (isWin ? 'sl-bar-win' : 'sl-bar-loss') + (pct >= 100 ? ' sl-bar-full' : '');
-}
-
-function initStopLimits() {
-    const swInput  = document.getElementById('stop-win-input');
-    const slInput  = document.getElementById('stop-loss-input');
-    const swToggle = document.getElementById('stop-win-toggle');
-    const slToggle = document.getElementById('stop-loss-toggle');
-
-    if (!swInput || !slInput) return;
-
-    // Activar/desactivar límites al cambiar el checkbox
-    swToggle.addEventListener('change', () => updateStopLimitsState());
-    slToggle.addEventListener('change', () => updateStopLimitsState());
-
-    // Actualizar al cambiar el valor
-    swInput.addEventListener('input', () => updateStopLimitsState());
-    slInput.addEventListener('input', () => updateStopLimitsState());
-
-    // Botón de reset manual
-    const resetBtn = document.getElementById('stop-limits-reset-btn');
-    if (resetBtn) resetBtn.addEventListener('click', resetStopLimits);
-
-    updateStopLimitsUI();
-}
-
-function updateStopLimitsState() {
-    const swToggle = document.getElementById('stop-win-toggle');
-    const slToggle = document.getElementById('stop-loss-toggle');
-    const swInput  = document.getElementById('stop-win-input');
-    const slInput  = document.getElementById('stop-loss-input');
-
-    const swVal = parseFloat(swInput.value);
-    const slVal = parseFloat(slInput.value);
-
-    stopLimits.stopWin  = (swToggle.checked && !isNaN(swVal) && swVal > 0) ? swVal  : null;
-    stopLimits.stopLoss = (slToggle.checked && !isNaN(slVal) && slVal > 0) ? slVal  : null;
-    stopLimits.active   = stopLimits.stopWin !== null || stopLimits.stopLoss !== null;
-
-    updateStopLimitsUI();
-}
-
-/**
- * Se llama después de cada operación completada.
- * Compara el profit acumulado contra los límites configurados.
- */
-function checkStopLimits() {
-    if (!stopLimits.active || stopLimits.triggered) return;
-
-    const profit = trading.totalProfit;
-
-    // Stop Win: profit acumulado >= límite configurado
-    if (stopLimits.stopWin !== null && profit >= stopLimits.stopWin) {
-        triggerStopLimit('stopWin', profit);
-        return;
-    }
-
-    // Stop Loss: pérdida acumulada <= -límite configurado
-    if (stopLimits.stopLoss !== null && profit <= -stopLimits.stopLoss) {
-        triggerStopLimit('stopLoss', profit);
-        return;
-    }
-}
-
-function triggerStopLimit(type, currentProfit) {
-    stopLimits.triggered   = true;
-    stopLimits.triggeredBy = type;
-
-    // Único efecto: detener la estrategia
-    strategy.paused = true;
-    strategy.buffer = [];
-
-    const isWin     = type === 'stopWin';
-    const limit     = isWin ? stopLimits.stopWin : stopLimits.stopLoss;
-    const profitStr = (currentProfit >= 0 ? '+' : '') + currentProfit.toFixed(2);
-    const title     = isWin ? '🏆 STOP WIN ALCANZADO' : '🛑 STOP LOSS ALCANZADO';
-    const detail    = isWin
-        ? `Ganancia $${profitStr} alcanzó el límite de +$${limit.toFixed(2)}`
-        : `Pérdida $${profitStr} alcanzó el límite de -$${limit.toFixed(2)}`;
-
-    // Reflejar en la caja de señal de la estrategia
-    const box = el.strategySignalBox;
-    if (box) {
-        box.className = `strategy-signal-box signal-stop-${isWin ? 'win' : 'loss'}`;
-        if (el.signalIcon)   el.signalIcon.innerHTML     = `<i class="fas fa-${isWin ? 'trophy' : 'hand-paper'}"></i>`;
-        if (el.signalText)   el.signalText.textContent   = title;
-        if (el.signalDetail) el.signalDetail.textContent = detail;
-    }
-
-    // Actualizar panel (muestra el estado alcanzado y el botón de reset)
-    updateStopLimitsUI();
-}
-
-/**
- * El usuario reactiva manualmente la estrategia tras alcanzar un límite.
- */
-function resetStopLimits() {
-    stopLimits.triggered   = false;
-    stopLimits.triggeredBy = null;
-
-    if (feed.running) {
-        strategy.paused = false;
-        strategy.buffer = [];
-        setStrategyStatusBar('resumed', 'Límite reseteado — Buscando nuevo patrón');
-    }
-
-    updateStopLimitsUI();
-}
-
-function updateStopLimitsUI() {
-    const panel    = document.getElementById('stop-limits-panel');
-    const resetBtn = document.getElementById('stop-limits-reset-btn');
-    const swToggle = document.getElementById('stop-win-toggle');
-    const slToggle = document.getElementById('stop-loss-toggle');
-    const swInput  = document.getElementById('stop-win-input');
-    const slInput  = document.getElementById('stop-loss-input');
-    const swStatus = document.getElementById('stop-win-status');
-    const slStatus = document.getElementById('stop-loss-status');
-    const profitEl = document.getElementById('stop-limits-profit');
-
-    if (!panel) return;
-
-    const profit = trading.totalProfit;
-
-    // Profit de sesión en el header del panel
-    if (profitEl) {
-        profitEl.textContent = `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`;
-        profitEl.className   = 'sl-profit-value ' + (profit >= 0 ? 'positive' : 'negative');
-    }
-
-    // Inputs: habilitados solo si su toggle está activo
-    if (swInput) swInput.disabled = !(swToggle && swToggle.checked);
-    if (slInput) slInput.disabled = !(slToggle && slToggle.checked);
-
-    // Barras de progreso
-    updateProgressBar('stop-win-bar',  profit,  stopLimits.stopWin,  true);
-    updateProgressBar('stop-loss-bar', -profit, stopLimits.stopLoss, false);
-
-    // Estado textual — Stop Win
-    if (swStatus) {
-        if (stopLimits.stopWin !== null) {
-            const rem = stopLimits.stopWin - profit;
-            swStatus.textContent = rem > 0 ? `Faltan $${rem.toFixed(2)}` : '✅ Alcanzado';
-            swStatus.className   = 'sl-status ' + (rem <= 0 ? 'sl-reached' : 'sl-active');
-        } else {
-            swStatus.textContent = 'Desactivado';
-            swStatus.className   = 'sl-status sl-inactive';
-        }
-    }
-
-    // Estado textual — Stop Loss
-    if (slStatus) {
-        if (stopLimits.stopLoss !== null) {
-            const rem = stopLimits.stopLoss + profit; // stopLoss - |pérdida|
-            slStatus.textContent = rem > 0 ? `Faltan $${rem.toFixed(2)}` : '🛑 Alcanzado';
-            slStatus.className   = 'sl-status ' + (rem <= 0 ? 'sl-reached' : 'sl-active');
-        } else {
-            slStatus.textContent = 'Desactivado';
-            slStatus.className   = 'sl-status sl-inactive';
-        }
-    }
-
-    // Botón de reactivar: visible solo cuando un límite fue alcanzado
-    if (resetBtn) resetBtn.style.display = stopLimits.triggered ? 'flex' : 'none';
 }
