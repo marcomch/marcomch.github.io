@@ -1068,6 +1068,9 @@ function procesarResultadoTrading(ganancia) {
     totalTrades++;
     ganancia > 0 ? wins++ : losses++;
 
+    // Actualizar resultado en el historial de señales
+    updateLastSignalResult(ganancia);
+
     if (lastTradeEl) {
         lastTradeEl.innerHTML = ganancia > 0
             ? `<span style="color:#27ae60">CALL +$${ganancia.toFixed(2)}</span>`
@@ -1303,6 +1306,12 @@ let signalPuts      = 0;
 let signalNone      = 0;
 let strategyPaused  = false;
 
+// Array para exportar historial de señales a CSV
+let signalsExportData = [];
+// Referencia al último item del historial pendiente de resultado
+let lastSignalHistoryItem = null;
+let lastSignalExportIndex = -1;
+
 // Cache de elementos de estrategia
 let patternDigitsRow, blueDirEl, redDirEl, blueDigitsEl, redDigitsEl;
 let strategySignalBox, signalIconEl, signalTextEl, signalDetailEl;
@@ -1523,7 +1532,13 @@ function setSignalUI(type, text, detail, addToHistory, tradeSignal) {
         if (tradeSignal === 'CALL') signalCalls++;
         else if (tradeSignal === 'PUT') signalPuts++;
 
-        addSignalToHistory(type, text, detail);
+        // Capturar el patrón actual del buffer (los últimos 5 dígitos)
+        const patternSnapshot = strategyBuffer.slice(-5);
+        const patternStr = patternSnapshot.map(d => {
+            const val = d.value === 10 ? '10' : String(d.value);
+            return val + (d.blue ? 'A' : 'R');
+        }).join('-');
+        addSignalToHistory(type, text, detail, patternStr);
         updateStrategyStats();
         highlightTradeButton(tradeSignal);
         playAlertSound('signal');
@@ -1552,17 +1567,90 @@ function setSignalUI(type, text, detail, addToHistory, tradeSignal) {
     }
 }
 
-function addSignalToHistory(type, text, detail) {
+function addSignalToHistory(type, text, detail, patternStr) {
     if (!signalsHistoryEl) return;
     const item = document.createElement('div');
     item.className = 'signal-history-item signal-hist-' + type;
     const time = new Date().toLocaleTimeString();
-    item.innerHTML = `<span class="sig-time">${time}</span><span class="sig-label">${text}</span><span class="sig-detail">${detail}</span>`;
+    const patternHtml = patternStr
+        ? `<span class="sig-pattern"><i class="fas fa-th-list"></i> ${patternStr}</span>`
+        : '';
+    item.innerHTML = `<span class="sig-time">${time}</span><span class="sig-label">${text}</span><span class="sig-detail">${detail}</span>${patternHtml}<span class="sig-result sig-result-pending"><i class="fas fa-clock"></i> Esperando resultado...</span>`;
     signalsHistoryEl.insertBefore(item, signalsHistoryEl.firstChild);
     while (signalsHistoryEl.children.length > 10) {
         signalsHistoryEl.removeChild(signalsHistoryEl.lastChild);
     }
+
+    // Guardar referencia para actualizar con el resultado
+    lastSignalHistoryItem = item;
+
+    // Guardar en array de exportación
+    const now = new Date();
+    signalsExportData.push({
+        fecha: now.toLocaleDateString(),
+        hora: now.toLocaleTimeString(),
+        tipo: type === 'call' ? 'CALL' : 'PUT',
+        señal: text.replace(/[🟢🔴]/g, '').trim(),
+        detalle: detail,
+        patron: patternStr || '',
+        resultado: 'Pendiente',
+        ganancia: ''
+    });
+    lastSignalExportIndex = signalsExportData.length - 1;
 }
+
+// Actualiza el último item del historial con el resultado de la operación
+function updateLastSignalResult(profit) {
+    if (lastSignalHistoryItem) {
+        const resEl = lastSignalHistoryItem.querySelector('.sig-result');
+        if (resEl) {
+            const ganó = profit > 0;
+            resEl.className = 'sig-result ' + (ganó ? 'sig-result-win' : 'sig-result-loss');
+            resEl.innerHTML = ganó
+                ? `<i class="fas fa-check-circle"></i> GANÓ +$${profit.toFixed(2)}`
+                : `<i class="fas fa-times-circle"></i> PERDIÓ -$${Math.abs(profit).toFixed(2)}`;
+        }
+        lastSignalHistoryItem = null;
+    }
+    if (lastSignalExportIndex >= 0 && signalsExportData[lastSignalExportIndex]) {
+        signalsExportData[lastSignalExportIndex].resultado = profit > 0 ? 'GANÓ' : 'PERDIÓ';
+        signalsExportData[lastSignalExportIndex].ganancia  = (profit > 0 ? '+' : '') + profit.toFixed(2);
+        lastSignalExportIndex = -1;
+    }
+}
+
+// ====================== EXPORTAR CSV ======================
+window.exportSignalsCSV = function() {
+    if (!signalsExportData.length) {
+        showInternalNotification('⚠️ Sin datos', 'No hay señales en el historial para exportar.', 'warning');
+        return;
+    }
+
+    const headers = ['Fecha', 'Hora', 'Tipo', 'Señal', 'Detalle', 'Patrón', 'Resultado', 'Ganancia'];
+    const rows = signalsExportData.map(r => [
+        r.fecha,
+        r.hora,
+        r.tipo,
+        '"' + r.señal.replace(/"/g, '""') + '"',
+        '"' + r.detalle.replace(/"/g, '""') + '"',
+        '"' + r.patron.replace(/"/g, '""') + '"',
+        r.resultado || 'Pendiente',
+        r.ganancia  || ''
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const ts   = new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-');
+    a.href     = url;
+    a.download = `señales_${ts}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showInternalNotification('✅ Exportado', `${signalsExportData.length} señales exportadas a CSV.`, 'success');
+};
 
 // ====================== DERIV API ======================
 window.operarAutomatico = function(signal, stake) {
@@ -1680,3 +1768,307 @@ function conectarDerivAPI() {
         if (DERIV_API_TOKEN) setTimeout(conectarDerivAPI, 5000);
     };
 }
+
+// ====================== BACKTEST ======================
+let backtestData = [];
+
+window.openBacktest = function() {
+    document.getElementById('backtest-panel').classList.add('open');
+    document.getElementById('backtest-overlay').classList.add('open');
+};
+
+window.closeBacktest = function() {
+    document.getElementById('backtest-panel').classList.remove('open');
+    document.getElementById('backtest-overlay').classList.remove('open');
+};
+
+function btSetProgress(pct, label) {
+    const wrap = document.getElementById('bt-progress-wrap');
+    const fill = document.getElementById('bt-progress-fill');
+    const lbl  = document.getElementById('bt-progress-label');
+    if (wrap) wrap.classList.remove('hidden');
+    if (fill) fill.style.width = pct + '%';
+    if (lbl)  lbl.textContent  = label;
+}
+
+function btHideProgress() {
+    const wrap = document.getElementById('bt-progress-wrap');
+    if (wrap) wrap.classList.add('hidden');
+}
+
+// Replica la lógica de extracción de dígito del app
+function btExtractDigit(price, asset) {
+    const map = { R_100: 2, R_10: 3, R_25: 3, R_50: 4, R_75: 4 };
+    const xd  = map[asset] || 2;
+    const fmt = parseFloat(price).toFixed(xd);
+    return parseInt(fmt.slice(-1));
+}
+
+// Replica procesarDigitoConLogica010
+function btProcessDigit(digitActual, digitAnterior, wentUp) {
+    if (digitActual !== 0) return wentUp ? digitActual : -digitActual;
+    if (digitAnterior !== null && digitAnterior > 5) return wentUp ? 10 : -10;
+    return 0;
+}
+
+// Replica analyzeSequence
+function btAnalyzeSeq(values) {
+    if (values.length < 2) return null;
+    if (new Set(values).size !== values.length) return null;
+    let up = true, down = true;
+    for (let i = 1; i < values.length; i++) {
+        if (values[i] <= values[i-1]) up   = false;
+        if (values[i] >= values[i-1]) down = false;
+    }
+    if (up)   return 'up';
+    if (down) return 'down';
+    return null;
+}
+
+function btToMarket(dir, isBlue) {
+    if (dir === null) return null;
+    if (isBlue) return dir === 'up' ? 'alcista' : 'bajista';
+    return dir === 'down' ? 'alcista' : 'bajista';
+}
+
+// Analiza un buffer de 5 entradas y devuelve 'CALL', 'PUT' o null
+function btEvalBuffer(buf) {
+    if (buf.length < 5) return null;
+    const blues = buf.filter(d =>  d.blue);
+    const reds  = buf.filter(d => !d.blue);
+
+    const esCALL = reds.length  === 3 && blues.length === 2;
+    const esPUT  = blues.length === 3 && reds.length  === 2;
+    if (!esCALL && !esPUT) return null;
+
+    const blueDir = blues.length >= 2 ? btAnalyzeSeq(blues.map(d => d.value)) : (blues.length === 1 ? 'one' : null);
+    const redDir  = reds.length  >= 2 ? btAnalyzeSeq(reds.map(d  => d.value)) : (reds.length  === 1 ? 'one' : null);
+
+    const blueM = blueDir === 'one' ? null : btToMarket(blueDir, true);
+    const redM  = redDir  === 'one' ? null : btToMarket(redDir,  false);
+
+    if (!blueM || !redM || blueM !== redM) return null;
+
+    const isCall = blueM === 'alcista';
+    if (isCall && !esCALL) return null;
+    if (!isCall && !esPUT)  return null;
+    return isCall ? 'CALL' : 'PUT';
+}
+
+// Obtiene el resultado real de la señal: compara precio de entrada (tick[i]) con tick[i+5]
+function btGetResult(ticks, signalIdx, signal) {
+    const entryTick = signalIdx + 1; // la señal se genera en tick i, la entrada es tick i+1
+    const exitTick  = entryTick + 5; // 5 ticks de duración
+    if (exitTick >= ticks.length) return null; // no hay suficientes ticks para cerrar
+    const entry = ticks[entryTick].price;
+    const exit  = ticks[exitTick].price;
+    if (signal === 'CALL') return exit > entry ? 'WIN' : 'LOSS';
+    return exit < entry ? 'WIN' : 'LOSS';
+}
+
+window.runBacktest = function() {
+    const asset  = document.getElementById('bt-asset').value;
+    const period = parseInt(document.getElementById('bt-period').value);
+    const stake  = parseFloat(document.getElementById('bt-stake').value) || 1;
+
+    const btn = document.getElementById('btn-run-backtest');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Ejecutando...';
+    document.getElementById('backtest-results').classList.add('hidden');
+    btSetProgress(5, 'Conectando con Deriv API...');
+
+    const endTime   = Math.floor(Date.now() / 1000);
+    const startTime = endTime - period;
+
+    // Deriv ticks_history: máx 5000 ticks por llamada
+    const wsUrl = 'wss://ws.binaryws.com/websockets/v3?app_id=1089';
+    const btWs  = new WebSocket(wsUrl);
+
+    btWs.onopen = () => {
+        btSetProgress(15, 'Descargando ticks históricos...');
+        btWs.send(JSON.stringify({
+            ticks_history: asset,
+            start: startTime,
+            end: endTime,
+            style: 'ticks',
+            count: 5000
+        }));
+    };
+
+    btWs.onmessage = (msg) => {
+        const data = JSON.parse(msg.data);
+        btWs.close();
+
+        if (data.error) {
+            btHideProgress();
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-play"></i> Ejecutar Backtest';
+            showInternalNotification('❌ Error Backtest', data.error.message, 'error');
+            return;
+        }
+
+        if (!data.history || !data.history.prices) {
+            btHideProgress();
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-play"></i> Ejecutar Backtest';
+            showInternalNotification('⚠️ Sin datos', 'No se obtuvieron ticks históricos.', 'warning');
+            return;
+        }
+
+        btSetProgress(50, 'Procesando ticks...');
+
+        const prices = data.history.prices;
+        const times  = data.history.times;
+
+        // Construir array de ticks con su precio y dígito
+        const ticks = prices.map((p, i) => ({ price: parseFloat(p), time: times[i] }));
+
+        btSetProgress(65, `Analizando ${ticks.length} ticks con la estrategia...`);
+
+        // Simular la estrategia sobre los ticks históricos
+        const signals   = [];
+        const btBuffer  = [];
+        let prevDigit   = null;
+
+        // Payout estándar Deriv ~95% para binary options 5t
+        const PAYOUT_MULT = 0.95;
+
+        for (let i = 1; i < ticks.length; i++) {
+            const prev   = ticks[i - 1].price;
+            const curr   = ticks[i].price;
+            const wentUp = curr >= prev;
+            const digit  = btExtractDigit(curr, asset);
+            const procVal = Math.abs(btProcessDigit(digit, prevDigit, wentUp));
+            prevDigit = digit;
+
+            btBuffer.push({ value: procVal, blue: wentUp });
+            if (btBuffer.length > 5) btBuffer.shift();
+
+            if (btBuffer.length < 5) continue;
+
+            const signal = btEvalBuffer(btBuffer.slice());
+            if (!signal) continue;
+
+            const result = btGetResult(ticks, i, signal);
+            if (result === null) continue; // sin suficientes ticks para cerrar
+
+            const won    = result === 'WIN';
+            const pnl    = won ? stake * PAYOUT_MULT : -stake;
+
+            const patternArr = btBuffer.map(d => {
+                const v = d.value === 10 ? '10' : String(d.value);
+                return v + (d.blue ? 'A' : 'R');
+            });
+
+            signals.push({
+                idx:     i,
+                hora:    new Date(ticks[i].time * 1000).toLocaleTimeString(),
+                tipo:    signal,
+                patron:  patternArr.join('-'),
+                result:  result,
+                won,
+                pnl,
+                entry:   ticks[i + 1] ? ticks[i + 1].price : curr,
+                exit:    ticks[i + 6] ? ticks[i + 6].price : curr
+            });
+
+            // Saltar los 6 ticks usados para no solapar señales
+            i += 5;
+            btBuffer.length = 0;
+            prevDigit = null;
+        }
+
+        btSetProgress(90, 'Calculando resultados...');
+        btRenderResults(signals, stake, period, ticks.length);
+        btSetProgress(100, 'Listo');
+        setTimeout(btHideProgress, 600);
+
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-play"></i> Ejecutar Backtest';
+    };
+
+    btWs.onerror = () => {
+        btHideProgress();
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-play"></i> Ejecutar Backtest';
+        showInternalNotification('❌ Error de conexión', 'No se pudo conectar con Deriv API.', 'error');
+    };
+};
+
+function btRenderResults(signals, stake, period, totalTicks) {
+    backtestData = signals;
+
+    const total  = signals.length;
+    const wins   = signals.filter(s => s.won).length;
+    const losses = total - wins;
+    const calls  = signals.filter(s => s.tipo === 'CALL').length;
+    const puts   = signals.filter(s => s.tipo === 'PUT').length;
+    const pnl    = signals.reduce((sum, s) => sum + s.pnl, 0);
+    const rate   = total > 0 ? Math.round(wins / total * 100) : 0;
+
+    document.getElementById('bt-total').textContent  = total;
+    document.getElementById('bt-wins').textContent   = wins;
+    document.getElementById('bt-losses').textContent = losses;
+    document.getElementById('bt-calls').textContent  = calls;
+    document.getElementById('bt-puts').textContent   = puts;
+    document.getElementById('bt-ticks').textContent  = totalTicks;
+    document.getElementById('bt-rate').textContent   = rate + '%';
+    document.getElementById('bt-rate').style.color   = rate >= 55 ? '#27ae60' : rate >= 45 ? '#f39c12' : '#e74c3c';
+
+    const profitEl = document.getElementById('bt-profit');
+    profitEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+    profitEl.style.color = pnl >= 0 ? '#27ae60' : '#e74c3c';
+
+    const periodLabels = { 900: '15 min', 1800: '30 min', 3600: '1 hora', 7200: '2 horas', 14400: '4 horas', 28800: '8 horas', 86400: '24 horas' };
+    document.getElementById('bt-rate-label-pct').textContent    = rate + '% efectividad';
+    document.getElementById('bt-rate-label-period').textContent = 'Período: ' + (periodLabels[period] || period + 's');
+
+    const barFill = document.getElementById('bt-rate-bar-fill');
+    barFill.style.width = rate + '%';
+    barFill.style.background = rate >= 55 ? '#27ae60' : rate >= 45 ? '#f39c12' : '#e74c3c';
+
+    // Tabla detallada
+    const tbody = document.getElementById('bt-table-body');
+    tbody.innerHTML = '';
+    signals.forEach((s, idx) => {
+        const tr = document.createElement('tr');
+        tr.className = s.won ? 'bt-row-win' : 'bt-row-loss';
+        tr.innerHTML = `
+            <td>${idx + 1}</td>
+            <td>${s.hora}</td>
+            <td class="${s.tipo === 'CALL' ? 'bt-call' : 'bt-put'}">
+                <i class="fas fa-arrow-${s.tipo === 'CALL' ? 'up' : 'down'}"></i> ${s.tipo}
+            </td>
+            <td class="bt-pattern">${s.patron}</td>
+            <td class="${s.won ? 'bt-win-cell' : 'bt-loss-cell'}">
+                ${s.won ? '✅ GANÓ' : '❌ PERDIÓ'}
+            </td>
+            <td class="${s.pnl >= 0 ? 'bt-win-cell' : 'bt-loss-cell'}">
+                ${s.pnl >= 0 ? '+' : ''}$${s.pnl.toFixed(2)}
+            </td>`;
+        tbody.appendChild(tr);
+    });
+
+    document.getElementById('backtest-results').classList.remove('hidden');
+}
+
+window.exportBacktestCSV = function() {
+    if (!backtestData.length) return;
+    const headers = ['#', 'Hora', 'Tipo', 'Patrón', 'Resultado', 'P&L'];
+    const rows = backtestData.map((s, i) => [
+        i + 1, s.hora, s.tipo,
+        '"' + s.patron + '"',
+        s.won ? 'GANÓ' : 'PERDIÓ',
+        (s.pnl >= 0 ? '+' : '') + s.pnl.toFixed(2)
+    ]);
+    const csv  = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `backtest_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};
