@@ -912,6 +912,20 @@ window.clearChart = function() {
     if (digitsChart) { digitsChart.options.data[0].dataPoints = []; digitsChart.render(); }
     if (digitsContainer) digitsContainer.innerHTML = '';
     if (digitCountEl)    digitCountEl.textContent = '0';
+
+    // FIX LIMPIAR PATRÓN: Limpiar también el buffer de estrategia y el panel
+    // de "PATRÓN ACTUAL (5 DÍGITOS)" al pulsar el botón de limpiar gráfico de dígitos.
+    strategyBuffer = [];
+    if (patternDigitsRow) {
+        patternDigitsRow.innerHTML = '<div class="pattern-placeholder">Esperando dígitos...</div>';
+    }
+    if (blueDigitsEl)  blueDigitsEl.textContent  = '-';
+    if (redDigitsEl)   redDigitsEl.textContent   = '-';
+    if (blueDirEl)     blueDirEl.textContent      = '—';
+    if (redDirEl)      redDirEl.textContent       = '—';
+    if (!strategyPaused && strategySignalBox) {
+        setStrategyStatusBar('resumed', 'Buffer limpiado — Esperando nuevos dígitos...');
+    }
 };
 
 window.clearPriceChart = function() {
@@ -933,16 +947,22 @@ window.clearPriceChart = function() {
 
 // ====================== MONITOR DE OPERACIÓN ======================
 function startTradeMonitorWithRealData(contractId, tradeType, entryPrice, entryPriceDisplayed, entryTime) {
+    // FIX #3: Guardar startTime como timestamp numérico (ms) para evitar que
+    // "Invalid Date" cause NaN:NaN en el timer de tiempo transcurrido.
+    const startTimestamp = (entryTime instanceof Date && !isNaN(entryTime.getTime()))
+        ? entryTime.getTime()
+        : Date.now();
+
     activeTrade = {
         id: contractId, type: tradeType,
         entryPrice, entryPriceDisplayed,
         currentPrice: entryPrice,
-        startTime: entryTime,
+        startTime: startTimestamp,
         ticksRemaining: 5, currentTickIndex: 1,
         isWinning: false, profitLoss: 0
     };
 
-    contractTicks    = [{ price: entryPrice, timestamp: entryTime.getTime(), tick_index: 1 }];
+    contractTicks    = [{ price: entryPrice, timestamp: startTimestamp, tick_index: 1 }];
     priceHistoryData = contractTicks.map(t => ({ price: t.price, timestamp: t.timestamp }));
 
     tradeMonitorEl.classList.remove('hidden');
@@ -1047,11 +1067,36 @@ function stopTradeMonitor() {
 
 // ====================== TRADING ======================
 window.executeTrade = function(type) {
-    if (!running) { alert('⚠️ Primero debes conectar el feed de precios'); return; }
-    if (isTrading) { alert('⏳ Ya hay una operación en curso. Espera a que termine.'); return; }
-    if (tradingStake <= 0) { alert('❌ El monto a operar debe ser mayor a 0'); return; }
-    if (tradingStake > balance) { alert('❌ Saldo insuficiente'); return; }
-    if (stopTriggered) { alert('🛑 El sistema está detenido por Stop Win/Loss. Ajusta los límites para continuar.'); return; }
+    // FIX #5: Cuando executeTrade falla por validación (balance insuficiente, etc.),
+    // strategyPaused quedaba en true bloqueando el análisis indefinidamente.
+    // Ahora se limpia strategyPaused en todos los casos de fallo, excepto stopTriggered.
+    if (!running) {
+        alert('⚠️ Primero debes conectar el feed de precios');
+        strategyPaused = false;
+        isTrading = false;
+        return;
+    }
+    if (isTrading) {
+        alert('⏳ Ya hay una operación en curso. Espera a que termine.');
+        strategyPaused = false;
+        return;
+    }
+    if (tradingStake <= 0) {
+        alert('❌ El monto a operar debe ser mayor a 0');
+        strategyPaused = false;
+        isTrading = false;
+        return;
+    }
+    if (tradingStake > balance) {
+        alert('❌ Saldo insuficiente');
+        strategyPaused = false;
+        isTrading = false;
+        return;
+    }
+    if (stopTriggered) {
+        alert('🛑 El sistema está detenido por Stop Win/Loss. Ajusta los límites para continuar.');
+        return; // stopTriggered sí debe mantener strategyPaused = true
+    }
 
     isTrading = true;
     tradeStatusEl.textContent  = 'OPERANDO...';
@@ -1059,11 +1104,16 @@ window.executeTrade = function(type) {
     window.operarAutomatico(type === 'CALL' ? 'UP' : 'DOWN', tradingStake);
 };
 
-function procesarResultadoTrading(ganancia) {
+function procesarResultadoTrading(ganancia, tradeType) {
     isTrading = false;
     stopTradeMonitor();
 
-    balance      += ganancia;
+    // FIX SALDO: No modificar 'balance' manualmente aquí.
+    // Al comprar se descuenta el stake (balance -= stake) y al terminar
+    // el contrato Deriv envía un evento data.balance con el saldo real,
+    // que es la fuente de verdad. Sumar ganancia aquí causaba doble cómputo
+    // y un saldo incorrecto al terminar cada operación.
+    // Solo actualizamos totalProfit para el P&L interno de sesión.
     totalProfit  += ganancia;
     totalTrades++;
     ganancia > 0 ? wins++ : losses++;
@@ -1071,10 +1121,13 @@ function procesarResultadoTrading(ganancia) {
     // Actualizar resultado en el historial de señales
     updateLastSignalResult(ganancia);
 
+    // FIX #6: El tipo de operación se mostraba hardcodeado ('CALL'/'PUT').
+    // Ahora se usa el tipo real recibido como parámetro.
     if (lastTradeEl) {
+        const label = tradeType || (ganancia > 0 ? 'CALL' : 'PUT');
         lastTradeEl.innerHTML = ganancia > 0
-            ? `<span style="color:#27ae60">CALL +$${ganancia.toFixed(2)}</span>`
-            : `<span style="color:#e74c3c">PUT -$${Math.abs(ganancia).toFixed(2)}</span>`;
+            ? `<span style="color:#27ae60">${label} +$${ganancia.toFixed(2)}</span>`
+            : `<span style="color:#e74c3c">${label} -$${Math.abs(ganancia).toFixed(2)}</span>`;
     }
 
     updateTradingDisplay();
@@ -1653,10 +1706,26 @@ window.exportSignalsCSV = function() {
 };
 
 // ====================== DERIV API ======================
-window.operarAutomatico = function(signal, stake) {
+window.operarAutomatico = function(signal, stake, retries = 0) {
     if (!derivWs || derivWs.readyState !== WebSocket.OPEN) {
+        // FIX #2: Limitar reintentos a 3 para evitar acumulación de llamadas
+        // que generaban operaciones duplicadas cuando el WS finalmente abría.
+        if (retries >= 3) {
+            isTrading = false;
+            strategyPaused = false;
+            if (tradeStatusEl) {
+                tradeStatusEl.textContent = 'LISTO';
+                tradeStatusEl.style.color = '#27ae60';
+            }
+            showInternalNotification(
+                '⚠️ Sin conexión Deriv',
+                'No se pudo conectar a Deriv API tras 3 intentos. Intenta de nuevo.',
+                'error'
+            );
+            return;
+        }
         conectarDerivAPI();
-        setTimeout(() => window.operarAutomatico(signal, stake), 3000);
+        setTimeout(() => window.operarAutomatico(signal, stake, retries + 1), 3000);
         return;
     }
 
@@ -1705,13 +1774,21 @@ function conectarDerivAPI() {
         if (data.proposal_open_contract) {
             const contract = data.proposal_open_contract;
 
-            if (contract.contract_id === currentContract?.contract_id && !activeTrade && contract.entry_tick) {
+            // FIX #1: La condición anterior (!activeTrade) bloqueaba el monitor si quedaba
+            // un activeTrade residual de una operación previa. Ahora solo verifica que no sea
+            // el mismo contrato ya siendo monitoreado, y que entry_tick_time sea válido.
+            if (contract.contract_id === currentContract?.contract_id &&
+                (!activeTrade || activeTrade.id !== contract.contract_id) &&
+                contract.entry_tick) {
+                const entryTime = contract.entry_tick_time
+                    ? new Date(contract.entry_tick_time * 1000)
+                    : new Date();
                 startTradeMonitorWithRealData(
                     contract.contract_id,
                     contract.contract_type,
                     parseFloat(contract.entry_tick),
-                    parseFloat(contract.entry_tick_displayed),
-                    new Date(contract.entry_tick_time * 1000)
+                    parseFloat(contract.entry_tick_displayed || contract.entry_tick),
+                    entryTime
                 );
             }
 
@@ -1726,6 +1803,7 @@ function conectarDerivAPI() {
                 const profit      = parseFloat(contract.profit);
                 const exitTick    = parseFloat(contract.exit_tick);
                 const contract_id = contract.contract_id;
+                const contractType = contract.contract_type || (activeTrade ? activeTrade.type : '');
 
                 if (activeTrade && activeTrade.id === contract_id) {
                     activeTrade.currentPrice = exitTick;
@@ -1735,7 +1813,7 @@ function conectarDerivAPI() {
                     updateMonitorWithRealData(contractTicks);
                 }
 
-                procesarResultadoTrading(profit);
+                procesarResultadoTrading(profit, contractType);
                 mostrarResultadoOperacion(profit, contract.status, contract_id);
                 derivWs.send(JSON.stringify({ proposal_open_contract: 0, contract_id, subscribe: 0 }));
                 currentContract = null;
@@ -1761,7 +1839,30 @@ function conectarDerivAPI() {
         }
     };
 
-    derivWs.onerror = () => {};
+    // FIX #4: El onerror anterior estaba vacío. Si ocurría un error durante
+    // una operación, isTrading quedaba true bloqueando todas las operaciones futuras.
+    derivWs.onerror = () => {
+        if (isTrading) {
+            isTrading = false;
+            if (tradeStatusEl) {
+                tradeStatusEl.textContent = 'ERROR';
+                tradeStatusEl.style.color = '#e74c3c';
+                setTimeout(() => {
+                    tradeStatusEl.textContent = 'LISTO';
+                    tradeStatusEl.style.color = '#27ae60';
+                }, 3000);
+            }
+            stopTradeMonitor();
+            currentContract = null;
+            strategyPaused = false;
+            updateTradingDisplay();
+            showInternalNotification(
+                '⚠️ Error de conexión',
+                'Se perdió la conexión durante la operación. El sistema se ha restablecido.',
+                'error'
+            );
+        }
+    };
 
     derivWs.onclose = () => {
         currentContract = null;
@@ -1772,9 +1873,11 @@ function conectarDerivAPI() {
 // ====================== BACKTEST ======================
 let backtestData = [];
 
+// ---- Utilidades UI ----
 window.openBacktest = function() {
     document.getElementById('backtest-panel').classList.add('open');
     document.getElementById('backtest-overlay').classList.add('open');
+    btRenderHistory();
 };
 
 window.closeBacktest = function() {
@@ -1782,21 +1885,33 @@ window.closeBacktest = function() {
     document.getElementById('backtest-overlay').classList.remove('open');
 };
 
-function btSetProgress(pct, label) {
-    const wrap = document.getElementById('bt-progress-wrap');
-    const fill = document.getElementById('bt-progress-fill');
-    const lbl  = document.getElementById('bt-progress-label');
+window.btSwitchTab = function(tab) {
+    ['config','compare','history'].forEach(t => {
+        document.getElementById('bt-tab-' + t).classList.toggle('active', t === tab);
+        document.getElementById('bt-content-' + t).classList.toggle('hidden', t !== tab);
+    });
+    if (tab === 'history') btRenderHistory();
+};
+
+window.btToggleTimeFilter = function() {}; // legacy no-op
+
+function btSetProgress(pct, label, prefix) {
+    const id = prefix || '';
+    const wrap = document.getElementById('bt' + id + '-progress-wrap');
+    const fill = document.getElementById('bt' + id + '-progress-fill');
+    const lbl  = document.getElementById('bt' + id + '-progress-label');
     if (wrap) wrap.classList.remove('hidden');
     if (fill) fill.style.width = pct + '%';
     if (lbl)  lbl.textContent  = label;
 }
 
-function btHideProgress() {
-    const wrap = document.getElementById('bt-progress-wrap');
+function btHideProgress(prefix) {
+    const id = prefix || '';
+    const wrap = document.getElementById('bt' + id + '-progress-wrap');
     if (wrap) wrap.classList.add('hidden');
 }
 
-// Replica la lógica de extracción de dígito del app
+// ---- Lógica de estrategia (replica exacta del motor principal) ----
 function btExtractDigit(price, asset) {
     const map = { R_100: 2, R_10: 3, R_25: 3, R_50: 4, R_75: 4 };
     const xd  = map[asset] || 2;
@@ -1804,14 +1919,12 @@ function btExtractDigit(price, asset) {
     return parseInt(fmt.slice(-1));
 }
 
-// Replica procesarDigitoConLogica010
 function btProcessDigit(digitActual, digitAnterior, wentUp) {
     if (digitActual !== 0) return wentUp ? digitActual : -digitActual;
     if (digitAnterior !== null && digitAnterior > 5) return wentUp ? 10 : -10;
     return 0;
 }
 
-// Replica analyzeSequence
 function btAnalyzeSeq(values) {
     if (values.length < 2) return null;
     if (new Set(values).size !== values.length) return null;
@@ -1831,41 +1944,132 @@ function btToMarket(dir, isBlue) {
     return dir === 'down' ? 'alcista' : 'bajista';
 }
 
-// Analiza un buffer de 5 entradas y devuelve 'CALL', 'PUT' o null
 function btEvalBuffer(buf) {
     if (buf.length < 5) return null;
     const blues = buf.filter(d =>  d.blue);
     const reds  = buf.filter(d => !d.blue);
-
     const esCALL = reds.length  === 3 && blues.length === 2;
     const esPUT  = blues.length === 3 && reds.length  === 2;
     if (!esCALL && !esPUT) return null;
-
     const blueDir = blues.length >= 2 ? btAnalyzeSeq(blues.map(d => d.value)) : (blues.length === 1 ? 'one' : null);
     const redDir  = reds.length  >= 2 ? btAnalyzeSeq(reds.map(d  => d.value)) : (reds.length  === 1 ? 'one' : null);
-
     const blueM = blueDir === 'one' ? null : btToMarket(blueDir, true);
     const redM  = redDir  === 'one' ? null : btToMarket(redDir,  false);
-
     if (!blueM || !redM || blueM !== redM) return null;
-
     const isCall = blueM === 'alcista';
     if (isCall && !esCALL) return null;
     if (!isCall && !esPUT)  return null;
     return isCall ? 'CALL' : 'PUT';
 }
 
-// Obtiene el resultado real de la señal: compara precio de entrada (tick[i]) con tick[i+5]
 function btGetResult(ticks, signalIdx, signal) {
-    const entryTick = signalIdx + 1; // la señal se genera en tick i, la entrada es tick i+1
-    const exitTick  = entryTick + 5; // 5 ticks de duración
-    if (exitTick >= ticks.length) return null; // no hay suficientes ticks para cerrar
+    const entryTick = signalIdx + 1;
+    const exitTick  = entryTick + 5;
+    if (exitTick >= ticks.length) return null;
     const entry = ticks[entryTick].price;
     const exit  = ticks[exitTick].price;
     if (signal === 'CALL') return exit > entry ? 'WIN' : 'LOSS';
     return exit < entry ? 'WIN' : 'LOSS';
 }
 
+// Descarga ticks históricos de Deriv y devuelve Promise<ticks[]>
+function btFetchTicks(asset, period) {
+    return new Promise((resolve, reject) => {
+        const endTime   = Math.floor(Date.now() / 1000);
+        const startTime = endTime - period;
+        const ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+        ws.onopen = () => {
+            ws.send(JSON.stringify({ ticks_history: asset, start: startTime, end: endTime, style: 'ticks', count: 5000 }));
+        };
+        ws.onmessage = (msg) => {
+            const data = JSON.parse(msg.data);
+            ws.close();
+            if (data.error) { reject(data.error.message); return; }
+            if (!data.history || !data.history.prices) { reject('Sin datos'); return; }
+            const ticks = data.history.prices.map((p, i) => ({
+                price: parseFloat(p),
+                time:  data.history.times[i]
+            }));
+            resolve(ticks);
+        };
+        ws.onerror = () => { ws.close(); reject('Error de conexión'); };
+    });
+}
+
+// Simula la estrategia sobre un array de ticks y devuelve señales[]
+function btSimulate(ticks, asset, stake, timeFrom, timeTo) {
+    const PAYOUT_MULT = 0.95;
+    const signals  = [];
+    const btBuffer = [];
+    let prevDigit  = null;
+
+    for (let i = 1; i < ticks.length; i++) {
+        const prev    = ticks[i - 1].price;
+        const curr    = ticks[i].price;
+        const wentUp  = curr >= prev;
+        const digit   = btExtractDigit(curr, asset);
+        const procVal = Math.abs(btProcessDigit(digit, prevDigit, wentUp));
+        prevDigit = digit;
+
+        btBuffer.push({ value: procVal, blue: wentUp });
+        if (btBuffer.length > 5) btBuffer.shift();
+        if (btBuffer.length < 5) continue;
+
+        const signal = btEvalBuffer(btBuffer.slice());
+        if (!signal) continue;
+
+        // ---- Filtro horario ----
+        if (timeFrom !== null && timeTo !== null) {
+            const d        = new Date(ticks[i].time * 1000);
+            const hhmm     = d.getHours() * 60 + d.getMinutes();
+            const fromMins = timeFrom;
+            const toMins   = timeTo;
+            if (hhmm < fromMins || hhmm > toMins) {
+                btBuffer.length = 0; prevDigit = null;
+                continue;
+            }
+        }
+
+        const result = btGetResult(ticks, i, signal);
+        if (result === null) continue;
+
+        const won  = result === 'WIN';
+        const pnl  = won ? stake * PAYOUT_MULT : -stake;
+        const patternArr = btBuffer.map(d2 => {
+            const v = d2.value === 10 ? '10' : String(d2.value);
+            return v + (d2.blue ? 'A' : 'R');
+        });
+
+        signals.push({
+            idx:    i,
+            hora:   new Date(ticks[i].time * 1000).toLocaleTimeString(),
+            tipo:   signal,
+            patron: patternArr.join('-'),
+            result, won, pnl,
+            entry:  ticks[i + 1] ? ticks[i + 1].price : curr,
+            exit:   ticks[i + 6] ? ticks[i + 6].price : curr
+        });
+
+        i += 5;
+        btBuffer.length = 0;
+        prevDigit = null;
+    }
+    return signals;
+}
+
+// ---- Cálculo de resumen ----
+function btCalcSummary(signals, stake, totalTicks) {
+    const total  = signals.length;
+    const wins   = signals.filter(s => s.won).length;
+    const losses = total - wins;
+    const calls  = signals.filter(s => s.tipo === 'CALL').length;
+    const puts   = signals.filter(s => s.tipo === 'PUT').length;
+    const pnl    = signals.reduce((sum, s) => sum + s.pnl, 0);
+    const rate   = total > 0 ? Math.round(wins / total * 100) : 0;
+    return { total, wins, losses, calls, puts, pnl, rate, totalTicks };
+}
+
+// ---- TAB CONFIGURACIÓN: runBacktest ----
 window.runBacktest = function() {
     const asset  = document.getElementById('bt-asset').value;
     const period = parseInt(document.getElementById('bt-period').value);
@@ -1877,134 +2081,131 @@ window.runBacktest = function() {
     document.getElementById('backtest-results').classList.add('hidden');
     btSetProgress(5, 'Conectando con Deriv API...');
 
-    const endTime   = Math.floor(Date.now() / 1000);
-    const startTime = endTime - period;
-
-    // Deriv ticks_history: máx 5000 ticks por llamada
-    const wsUrl = 'wss://ws.binaryws.com/websockets/v3?app_id=1089';
-    const btWs  = new WebSocket(wsUrl);
-
-    btWs.onopen = () => {
-        btSetProgress(15, 'Descargando ticks históricos...');
-        btWs.send(JSON.stringify({
-            ticks_history: asset,
-            start: startTime,
-            end: endTime,
-            style: 'ticks',
-            count: 5000
-        }));
-    };
-
-    btWs.onmessage = (msg) => {
-        const data = JSON.parse(msg.data);
-        btWs.close();
-
-        if (data.error) {
+    btFetchTicks(asset, period)
+        .then(ticks => {
+            btSetProgress(60, `Analizando ${ticks.length} ticks...`);
+            const signals = btSimulate(ticks, asset, stake, null, null);
+            btSetProgress(90, 'Calculando resultados...');
+            const summary = btCalcSummary(signals, stake, ticks.length);
+            const periodLabels = { 900:'15 min',1800:'30 min',3600:'1 hora',7200:'2 horas',14400:'4 horas',28800:'8 horas',86400:'24 horas' };
+            const assetNames  = { R_10:'V10', R_25:'V25', R_50:'V50', R_75:'V75', R_100:'V100' };
+            btRenderResults(signals, summary, periodLabels[period] || period+'s', asset);
+            btRenderHourly(signals, periodLabels[period] || period+'s');
+            btSaveRun({
+                fecha:   new Date().toLocaleString(),
+                activo:  assetNames[asset] || asset,
+                periodo: periodLabels[period] || period+'s',
+                filtro:  '—',
+                stake:   stake,
+                ...summary
+            });
+            btSetProgress(100, 'Listo');
+            setTimeout(() => btHideProgress(), 600);
+        })
+        .catch(err => {
             btHideProgress();
+            showInternalNotification('❌ Error Backtest', err, 'error');
+        })
+        .finally(() => {
             btn.disabled = false;
             btn.innerHTML = '<i class="fas fa-play"></i> Ejecutar Backtest';
-            showInternalNotification('❌ Error Backtest', data.error.message, 'error');
-            return;
-        }
-
-        if (!data.history || !data.history.prices) {
-            btHideProgress();
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-play"></i> Ejecutar Backtest';
-            showInternalNotification('⚠️ Sin datos', 'No se obtuvieron ticks históricos.', 'warning');
-            return;
-        }
-
-        btSetProgress(50, 'Procesando ticks...');
-
-        const prices = data.history.prices;
-        const times  = data.history.times;
-
-        // Construir array de ticks con su precio y dígito
-        const ticks = prices.map((p, i) => ({ price: parseFloat(p), time: times[i] }));
-
-        btSetProgress(65, `Analizando ${ticks.length} ticks con la estrategia...`);
-
-        // Simular la estrategia sobre los ticks históricos
-        const signals   = [];
-        const btBuffer  = [];
-        let prevDigit   = null;
-
-        // Payout estándar Deriv ~95% para binary options 5t
-        const PAYOUT_MULT = 0.95;
-
-        for (let i = 1; i < ticks.length; i++) {
-            const prev   = ticks[i - 1].price;
-            const curr   = ticks[i].price;
-            const wentUp = curr >= prev;
-            const digit  = btExtractDigit(curr, asset);
-            const procVal = Math.abs(btProcessDigit(digit, prevDigit, wentUp));
-            prevDigit = digit;
-
-            btBuffer.push({ value: procVal, blue: wentUp });
-            if (btBuffer.length > 5) btBuffer.shift();
-
-            if (btBuffer.length < 5) continue;
-
-            const signal = btEvalBuffer(btBuffer.slice());
-            if (!signal) continue;
-
-            const result = btGetResult(ticks, i, signal);
-            if (result === null) continue; // sin suficientes ticks para cerrar
-
-            const won    = result === 'WIN';
-            const pnl    = won ? stake * PAYOUT_MULT : -stake;
-
-            const patternArr = btBuffer.map(d => {
-                const v = d.value === 10 ? '10' : String(d.value);
-                return v + (d.blue ? 'A' : 'R');
-            });
-
-            signals.push({
-                idx:     i,
-                hora:    new Date(ticks[i].time * 1000).toLocaleTimeString(),
-                tipo:    signal,
-                patron:  patternArr.join('-'),
-                result:  result,
-                won,
-                pnl,
-                entry:   ticks[i + 1] ? ticks[i + 1].price : curr,
-                exit:    ticks[i + 6] ? ticks[i + 6].price : curr
-            });
-
-            // Saltar los 6 ticks usados para no solapar señales
-            i += 5;
-            btBuffer.length = 0;
-            prevDigit = null;
-        }
-
-        btSetProgress(90, 'Calculando resultados...');
-        btRenderResults(signals, stake, period, ticks.length);
-        btSetProgress(100, 'Listo');
-        setTimeout(btHideProgress, 600);
-
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-play"></i> Ejecutar Backtest';
-    };
-
-    btWs.onerror = () => {
-        btHideProgress();
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-play"></i> Ejecutar Backtest';
-        showInternalNotification('❌ Error de conexión', 'No se pudo conectar con Deriv API.', 'error');
-    };
+        });
 };
 
-function btRenderResults(signals, stake, period, totalTicks) {
-    backtestData = signals;
+// ---- Análisis automático de efectividad por franja horaria ----
+function btRenderHourly(signals, periodLabel) {
+    const secEl      = document.getElementById('bt-hourly-section');
+    const barsEl     = document.getElementById('bt-hourly-bars');
+    const bestEl     = document.getElementById('bt-hourly-best');
+    const subtitleEl = document.getElementById('bt-hourly-subtitle');
+    if (!secEl || !barsEl) return;
 
-    const total  = signals.length;
-    const wins   = signals.filter(s => s.won).length;
-    const losses = total - wins;
-    const calls  = signals.filter(s => s.tipo === 'CALL').length;
-    const puts   = signals.filter(s => s.tipo === 'PUT').length;
-    const pnl    = signals.reduce((sum, s) => sum + s.pnl, 0);
-    const rate   = total > 0 ? Math.round(wins / total * 100) : 0;
+    // Agrupar señales por hora local (0-23)
+    const byHour = {};
+    signals.forEach(s => {
+        // s.hora es toLocaleTimeString → extraer hora del timestamp original
+        const h = parseInt(s.hora.split(':')[0]);
+        const hKey = isNaN(h) ? 0 : h;
+        if (!byHour[hKey]) byHour[hKey] = { wins: 0, total: 0 };
+        byHour[hKey].total++;
+        if (s.won) byHour[hKey].wins++;
+    });
+
+    const hours = Object.keys(byHour).map(Number).sort((a, b) => a - b);
+
+    if (!hours.length) {
+        secEl.classList.add('hidden');
+        return;
+    }
+    secEl.classList.remove('hidden');
+
+    // Calcular efectividad por hora
+    const hoursData = hours.map(h => ({
+        h,
+        label: `${String(h).padStart(2,'0')}:00`,
+        wins:  byHour[h].wins,
+        total: byHour[h].total,
+        rate:  Math.round(byHour[h].wins / byHour[h].total * 100)
+    }));
+
+    // Máximo rate para escalar barras
+    const maxRate = Math.max(...hoursData.map(d => d.rate), 1);
+
+    // Clasificar franjas
+    const good    = hoursData.filter(d => d.rate >= 60 && d.total >= 2).sort((a,b) => b.rate - a.rate);
+    const neutral = hoursData.filter(d => d.rate >= 45 && d.rate < 60 && d.total >= 2);
+    const bad     = hoursData.filter(d => d.rate < 45 && d.total >= 2).sort((a,b) => a.rate - b.rate);
+
+    // Resumen top
+    subtitleEl.textContent = periodLabel ? `— ${periodLabel} analizadas` : '';
+    bestEl.innerHTML = '';
+
+    if (good.length) {
+        const pill = document.createElement('div');
+        pill.className = 'bt-hourly-pill bt-hourly-pill-good';
+        pill.innerHTML = `<i class="fas fa-thumbs-up"></i> Mejores horas: ${good.slice(0,3).map(d => d.label + ' (' + d.rate + '%)').join(' · ')}`;
+        bestEl.appendChild(pill);
+    }
+    if (bad.length) {
+        const pill = document.createElement('div');
+        pill.className = 'bt-hourly-pill bt-hourly-pill-bad';
+        pill.innerHTML = `<i class="fas fa-thumbs-down"></i> Evitar: ${bad.slice(0,3).map(d => d.label + ' (' + d.rate + '%)').join(' · ')}`;
+        bestEl.appendChild(pill);
+    }
+    if (!good.length && !bad.length) {
+        const pill = document.createElement('div');
+        pill.className = 'bt-hourly-pill bt-hourly-pill-neutral';
+        pill.innerHTML = `<i class="fas fa-info-circle"></i> Sin suficientes señales por hora para sacar conclusiones (mínimo 2 por franja)`;
+        bestEl.appendChild(pill);
+    }
+
+    // Heatmap de barras horizontales (ordenado por hora)
+    barsEl.innerHTML = '';
+    hoursData.forEach(d => {
+        const color = d.rate >= 60 ? '#27ae60' : d.rate >= 45 ? '#f39c12' : '#e74c3c';
+        const opacity = d.total < 2 ? '0.4' : '1';
+        const barPct  = Math.round((d.rate / maxRate) * 100);
+
+        const row = document.createElement('div');
+        row.className = 'bt-hourly-row';
+        row.style.opacity = opacity;
+        row.title = `${d.label} — ${d.wins}W / ${d.total - d.wins}L de ${d.total} señales`;
+        row.innerHTML = `
+            <span class="bt-hourly-label">${d.label}</span>
+            <div class="bt-hourly-bar-wrap">
+                <div class="bt-hourly-bar" style="width:${barPct}%;background:${color}"></div>
+            </div>
+            <span class="bt-hourly-pct" style="color:${color}">${d.rate}%</span>
+            <span class="bt-hourly-count">${d.total} señal${d.total !== 1 ? 'es' : ''}</span>`;
+        barsEl.appendChild(row);
+    });
+}
+
+// ---- Render de resultados generales ----
+function btRenderResults(signals, summary, periodLabel, asset) {
+    backtestData = signals;
+    const assetNames = { R_10:'Volatility 10', R_25:'Volatility 25', R_50:'Volatility 50', R_75:'Volatility 75', R_100:'Volatility 100' };
+    const { total, wins, losses, calls, puts, pnl, rate, totalTicks } = summary;
 
     document.getElementById('bt-total').textContent  = total;
     document.getElementById('bt-wins').textContent   = wins;
@@ -2019,15 +2220,13 @@ function btRenderResults(signals, stake, period, totalTicks) {
     profitEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
     profitEl.style.color = pnl >= 0 ? '#27ae60' : '#e74c3c';
 
-    const periodLabels = { 900: '15 min', 1800: '30 min', 3600: '1 hora', 7200: '2 horas', 14400: '4 horas', 28800: '8 horas', 86400: '24 horas' };
-    document.getElementById('bt-rate-label-pct').textContent    = rate + '% efectividad';
-    document.getElementById('bt-rate-label-period').textContent = 'Período: ' + (periodLabels[period] || period + 's');
+    document.getElementById('bt-rate-label-pct').textContent    = rate + '% efectividad — ' + (assetNames[asset] || asset);
+    document.getElementById('bt-rate-label-period').textContent = 'Período: ' + periodLabel;
 
     const barFill = document.getElementById('bt-rate-bar-fill');
-    barFill.style.width = rate + '%';
+    barFill.style.width      = rate + '%';
     barFill.style.background = rate >= 55 ? '#27ae60' : rate >= 45 ? '#f39c12' : '#e74c3c';
 
-    // Tabla detallada
     const tbody = document.getElementById('bt-table-body');
     tbody.innerHTML = '';
     signals.forEach((s, idx) => {
@@ -2040,18 +2239,168 @@ function btRenderResults(signals, stake, period, totalTicks) {
                 <i class="fas fa-arrow-${s.tipo === 'CALL' ? 'up' : 'down'}"></i> ${s.tipo}
             </td>
             <td class="bt-pattern">${s.patron}</td>
-            <td class="${s.won ? 'bt-win-cell' : 'bt-loss-cell'}">
-                ${s.won ? '✅ GANÓ' : '❌ PERDIÓ'}
-            </td>
-            <td class="${s.pnl >= 0 ? 'bt-win-cell' : 'bt-loss-cell'}">
-                ${s.pnl >= 0 ? '+' : ''}$${s.pnl.toFixed(2)}
-            </td>`;
+            <td class="${s.won ? 'bt-win-cell' : 'bt-loss-cell'}">${s.won ? '✅ GANÓ' : '❌ PERDIÓ'}</td>
+            <td class="${s.pnl >= 0 ? 'bt-win-cell' : 'bt-loss-cell'}">${s.pnl >= 0 ? '+' : ''}$${s.pnl.toFixed(2)}</td>`;
         tbody.appendChild(tr);
     });
 
     document.getElementById('backtest-results').classList.remove('hidden');
 }
 
+// ---- TAB COMPARAR ACTIVOS ----
+window.runCompare = function() {
+    const period    = parseInt(document.getElementById('bt-cmp-period').value);
+    const stake     = parseFloat(document.getElementById('bt-cmp-stake').value) || 1;
+    const checkboxes = document.querySelectorAll('.bt-cmp-checkboxes input:checked');
+    const assets    = Array.from(checkboxes).map(c => c.value);
+
+    if (assets.length < 2) {
+        showInternalNotification('⚠️ Selección', 'Selecciona al menos 2 activos para comparar.', 'warning');
+        return;
+    }
+
+    const btn = document.getElementById('btn-run-compare');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Comparando...';
+    document.getElementById('bt-cmp-results').classList.add('hidden');
+    btSetProgress(5, `Descargando ${assets.length} activos...`, '-cmp');
+
+    const assetNames = { R_10:'Volatility 10', R_25:'Volatility 25', R_50:'Volatility 50', R_75:'Volatility 75', R_100:'Volatility 100' };
+    const promises   = assets.map(a => btFetchTicks(a, period).then(ticks => ({ asset: a, ticks })));
+    let done = 0;
+
+    Promise.all(promises.map(p => p.then(r => {
+        done++;
+        btSetProgress(Math.round(10 + (done / assets.length) * 70), `Descargado ${assetNames[r.asset] || r.asset}...`, '-cmp');
+        return r;
+    }))).then(results => {
+        btSetProgress(85, 'Procesando resultados...', '-cmp');
+
+        const rows = results.map(({ asset, ticks }) => {
+            const signals = btSimulate(ticks, asset, stake, null, null);
+            const s = btCalcSummary(signals, stake, ticks.length);
+            return { asset, ...s };
+        }).sort((a, b) => b.rate - a.rate);
+
+        const tbody = document.getElementById('bt-cmp-body');
+        tbody.innerHTML = '';
+        rows.forEach((r, i) => {
+            const tr = document.createElement('tr');
+            tr.className = i === 0 ? 'bt-cmp-best' : '';
+            const rateColor = r.rate >= 55 ? '#27ae60' : r.rate >= 45 ? '#f39c12' : '#e74c3c';
+            const pnlColor  = r.pnl >= 0 ? '#27ae60' : '#e74c3c';
+            tr.innerHTML = `
+                <td style="font-weight:700">${i === 0 ? '🥇 ' : ''}${assetNames[r.asset] || r.asset}</td>
+                <td>${r.total}</td>
+                <td class="bt-win-cell">${r.wins}</td>
+                <td class="bt-loss-cell">${r.losses}</td>
+                <td style="font-weight:700;color:${rateColor}">${r.rate}%</td>
+                <td class="bt-call">${r.calls}</td>
+                <td class="bt-put">${r.puts}</td>
+                <td style="font-weight:700;color:${pnlColor}">${r.pnl >= 0 ? '+' : ''}$${r.pnl.toFixed(2)}</td>`;
+            tbody.appendChild(tr);
+        });
+
+        // Barras visuales de efectividad
+        const barsEl = document.getElementById('bt-cmp-bars');
+        barsEl.innerHTML = '<div class="bt-cmp-bars-title">Efectividad por activo</div>';
+        rows.forEach(r => {
+            const color = r.rate >= 55 ? '#27ae60' : r.rate >= 45 ? '#f39c12' : '#e74c3c';
+            const div = document.createElement('div');
+            div.className = 'bt-cmp-bar-row';
+            div.innerHTML = `
+                <span class="bt-cmp-bar-label">${assetNames[r.asset] || r.asset}</span>
+                <div class="bt-cmp-bar-track">
+                    <div class="bt-cmp-bar-fill" style="width:${r.rate}%;background:${color}"></div>
+                </div>
+                <span class="bt-cmp-bar-pct" style="color:${color}">${r.rate}%</span>`;
+            barsEl.appendChild(div);
+        });
+
+        document.getElementById('bt-cmp-results').classList.remove('hidden');
+        btSetProgress(100, 'Listo', '-cmp');
+        setTimeout(() => btHideProgress('-cmp'), 600);
+    }).catch(err => {
+        btHideProgress('-cmp');
+        showInternalNotification('❌ Error comparación', err, 'error');
+    }).finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-exchange-alt"></i> Comparar activos';
+    });
+};
+
+// ---- TAB HISTORIAL DE RUNS ----
+const BT_HISTORY_KEY = 'bt_runs_history';
+
+function btSaveRun(run) {
+    try {
+        const raw  = localStorage.getItem(BT_HISTORY_KEY);
+        const list = raw ? JSON.parse(raw) : [];
+        list.unshift(run);
+        if (list.length > 50) list.pop();
+        localStorage.setItem(BT_HISTORY_KEY, JSON.stringify(list));
+    } catch(e) {}
+}
+
+function btLoadHistory() {
+    try {
+        const raw = localStorage.getItem(BT_HISTORY_KEY);
+        return raw ? JSON.parse(raw) : [];
+    } catch(e) { return []; }
+}
+
+function btRenderHistory() {
+    const list    = btLoadHistory();
+    const listEl  = document.getElementById('bt-history-list');
+    const emptyEl = document.getElementById('bt-history-empty');
+    if (!listEl) return;
+
+    listEl.innerHTML = '';
+    if (!list.length) {
+        emptyEl.classList.remove('hidden');
+        return;
+    }
+    emptyEl.classList.add('hidden');
+
+    list.forEach((r, idx) => {
+        const rateColor = r.rate >= 55 ? '#27ae60' : r.rate >= 45 ? '#f39c12' : '#e74c3c';
+        const pnlColor  = r.pnl >= 0 ? '#27ae60' : '#e74c3c';
+        const card = document.createElement('div');
+        card.className = 'bt-history-card';
+        card.innerHTML = `
+            <div class="bt-history-card-header">
+                <span class="bt-history-date">${r.fecha}</span>
+                <span class="bt-history-badge" style="color:${rateColor};border-color:${rateColor}">${r.rate}% efectividad</span>
+            </div>
+            <div class="bt-history-card-body">
+                <div class="bt-history-meta">
+                    <span><i class="fas fa-chart-bar"></i> ${r.activo}</span>
+                    <span><i class="fas fa-clock"></i> ${r.periodo}</span>
+                    <span><i class="fas fa-filter"></i> ${r.filtro}</span>
+                    <span><i class="fas fa-dollar-sign"></i> stake $${r.stake}</span>
+                </div>
+                <div class="bt-history-stats">
+                    <div class="bt-history-stat"><span class="bt-history-stat-val">${r.total}</span><span class="bt-history-stat-lbl">Señales</span></div>
+                    <div class="bt-history-stat"><span class="bt-history-stat-val" style="color:#27ae60">${r.wins}</span><span class="bt-history-stat-lbl">Ganadas</span></div>
+                    <div class="bt-history-stat"><span class="bt-history-stat-val" style="color:#e74c3c">${r.losses}</span><span class="bt-history-stat-lbl">Perdidas</span></div>
+                    <div class="bt-history-stat"><span class="bt-history-stat-val" style="color:${pnlColor}">${r.pnl >= 0 ? '+' : ''}$${parseFloat(r.pnl).toFixed(2)}</span><span class="bt-history-stat-lbl">P&L</span></div>
+                </div>
+                <div class="bt-history-bar-track">
+                    <div class="bt-history-bar-fill" style="width:${r.rate}%;background:${rateColor}"></div>
+                </div>
+            </div>`;
+        listEl.appendChild(card);
+    });
+}
+
+window.btClearHistory = function() {
+    if (!confirm('¿Eliminar todo el historial de backtests guardados?')) return;
+    try { localStorage.removeItem(BT_HISTORY_KEY); } catch(e) {}
+    btRenderHistory();
+    showInternalNotification('🗑️ Historial eliminado', 'Se borraron todos los runs guardados.', 'warning');
+};
+
+// ---- Exportar CSV ----
 window.exportBacktestCSV = function() {
     if (!backtestData.length) return;
     const headers = ['#', 'Hora', 'Tipo', 'Patrón', 'Resultado', 'P&L'];
@@ -2072,3 +2421,97 @@ window.exportBacktestCSV = function() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 };
+
+// ====================== RESPONSIVE MÓVIL ======================
+
+// Sincronizar selector de activo móvil con el desktop
+window.syncMobileAsset = function(val) {
+    const desktop = document.getElementById('asset-selector');
+    if (desktop) { desktop.value = val; desktop.dispatchEvent(new Event('change')); }
+};
+
+// Sincronizar los valores del header móvil con los del desktop
+function syncMobileHeader() {
+    const priceEl   = document.getElementById('price');
+    const balanceEl = document.getElementById('balance-amount');
+    const profitEl  = document.getElementById('total-profit');
+    const digitEl   = document.getElementById('current-digit');
+    const dotMobile = document.getElementById('status-dot-mobile');
+    const dotMain   = document.getElementById('status-dot');
+
+    const pm = document.getElementById('price-mobile');
+    const bm = document.getElementById('balance-mobile');
+    const plm= document.getElementById('pnl-mobile');
+    const dm = document.getElementById('digit-mobile');
+
+    if (pm && priceEl)   pm.textContent  = priceEl.textContent;
+    if (bm && balanceEl) bm.textContent  = balanceEl.textContent;
+    if (plm && profitEl) {
+        plm.textContent = profitEl.textContent;
+        plm.style.color = profitEl.style.color || '';
+    }
+    if (dm && digitEl) {
+        dm.textContent  = digitEl.textContent;
+        dm.className    = 'mobile-digit-circle ' + digitEl.className.replace('current-digit','').trim();
+    }
+    if (dotMobile && dotMain) dotMobile.className = dotMain.className;
+
+    // Sincronizar badge token móvil
+    const badgeDesktop = document.getElementById('token-badge');
+    const badgeMobile  = document.getElementById('token-badge-mobile');
+    if (badgeMobile && badgeDesktop) {
+        badgeMobile.classList.toggle('hidden', badgeDesktop.classList.contains('hidden'));
+    }
+}
+
+// Iniciar sincronización cada 300ms
+setInterval(syncMobileHeader, 300);
+
+// Tabs de navegación móvil
+window.mobileShowTab = function(tab) {
+    const isMobile = window.innerWidth <= 768;
+    if (!isMobile) return;
+
+    // Botones nav
+    document.querySelectorAll('.mob-nav-btn').forEach(b => b.classList.remove('active'));
+    const activeBtn = document.getElementById('mobnav-' + tab);
+    if (activeBtn) activeBtn.classList.add('active');
+
+    // Secciones: ocultar todas salvo la activa
+    const tradingEl = document.getElementById('mob-section-trading');
+    const signalEl  = document.getElementById('mob-section-signal');
+    const chartsEl  = document.getElementById('mob-section-charts');
+    const chartsSub = document.querySelector('.mobile-section-charts-sub');
+
+    [tradingEl, signalEl, chartsEl, chartsSub].forEach(el => {
+        if (el) el.classList.add('mob-hidden');
+    });
+
+    if (tab === 'trading' && tradingEl)  tradingEl.classList.remove('mob-hidden');
+    if (tab === 'signal'  && signalEl)   signalEl.classList.remove('mob-hidden');
+    if (tab === 'charts') {
+        if (chartsEl)  chartsEl.classList.remove('mob-hidden');
+        if (chartsSub) chartsSub.classList.remove('mob-hidden');
+    }
+};
+
+// Inicializar tabs en móvil al cargar
+window.addEventListener('load', () => {
+    if (window.innerWidth <= 768) mobileShowTab('trading');
+});
+window.addEventListener('resize', () => {
+    if (window.innerWidth > 768) {
+        // Restaurar todas las secciones en desktop
+        document.querySelectorAll('.mobile-section, .mobile-section-charts-sub')
+            .forEach(el => el.classList.remove('mob-hidden'));
+    } else {
+        mobileShowTab(getCurrentMobileTab());
+    }
+});
+
+function getCurrentMobileTab() {
+    const active = document.querySelector('.mob-nav-btn.active');
+    if (!active) return 'trading';
+    const id = active.id.replace('mobnav-','');
+    return id;
+}
