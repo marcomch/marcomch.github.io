@@ -77,7 +77,73 @@
     <!-- ====================== CONTENEDOR DE NOTIFICACIONES ====================== -->
     <div class="notification-container" id="notification-container"></div>
 
-    <!-- ====================== HEADER PRINCIPAL ====================== -->
+    <!-- ====================== HEADER MÓVIL ====================== -->
+    <header class="mobile-header">
+        <div class="mobile-header-top">
+            <div class="mobile-logo">
+                <i class="fas fa-chart-line"></i>
+                <span>TRADING</span>
+            </div>
+            <div class="mobile-status-asset">
+                <select id="asset-selector-mobile" class="asset-selector-mobile" onchange="syncMobileAsset(this.value)">
+                    <option value="R_100">V100</option>
+                    <option value="R_10" selected>V10</option>
+                    <option value="R_25">V25</option>
+                    <option value="R_50">V50</option>
+                    <option value="R_75">V75</option>
+                    <option value="RDBEAR">Bear</option>
+                    <option value="RDBULL">Bull</option>
+                    <option value="frxEURUSD">EUR/USD</option>
+                    <option value="frxEURJPY">EUR/JPY</option>
+                </select>
+                <div class="mobile-conn-dot">
+                    <div class="status-dot" id="status-dot-mobile"></div>
+                </div>
+                <div class="token-badge hidden" id="token-badge-mobile" onclick="cambiarToken()" title="Cambiar token" style="font-size:0.65rem;padding:3px 8px;">
+                    <i class="fas fa-key"></i>
+                </div>
+            </div>
+        </div>
+        <div class="mobile-price-bar">
+            <div class="mobile-price-block">
+                <span class="mobile-price-lbl">PRECIO</span>
+                <span class="mobile-price-val mono" id="price-mobile">—</span>
+            </div>
+            <div class="mobile-digit-wrap">
+                <div class="mobile-digit-circle" id="digit-mobile">-</div>
+            </div>
+            <div class="mobile-price-block">
+                <span class="mobile-price-lbl">BALANCE</span>
+                <span class="mobile-price-val" id="balance-mobile">$0.00</span>
+            </div>
+            <div class="mobile-price-block">
+                <span class="mobile-price-lbl">P&amp;L</span>
+                <span class="mobile-price-val" id="pnl-mobile">$0.00</span>
+            </div>
+        </div>
+        <div class="mobile-conn-btns">
+            <button onclick="startFeed()" class="mobile-btn-start"><i class="fas fa-play"></i> Iniciar</button>
+            <button onclick="stopFeed()" class="mobile-btn-stop"><i class="fas fa-stop"></i> Detener</button>
+        </div>
+    </header>
+
+    <!-- ====================== NAV INFERIOR MÓVIL ====================== -->
+    <nav class="mobile-bottom-nav">
+        <button class="mob-nav-btn active" id="mobnav-trading" onclick="mobileShowTab('trading')">
+            <i class="fas fa-bolt"></i><span>Trading</span>
+        </button>
+        <button class="mob-nav-btn" id="mobnav-signal" onclick="mobileShowTab('signal')">
+            <i class="fas fa-brain"></i><span>Señal</span>
+        </button>
+        <button class="mob-nav-btn" id="mobnav-charts" onclick="mobileShowTab('charts')">
+            <i class="fas fa-chart-bar"></i><span>Gráficos</span>
+        </button>
+        <button class="mob-nav-btn" id="mobnav-backtest" onclick="openBacktest()">
+            <i class="fas fa-flask"></i><span>Backtest</span>
+        </button>
+    </nav>
+
+    <!-- ====================== HEADER PRINCIPAL (desktop) ====================== -->
     <header class="main-header">
         <div class="logo-section">
             <div class="logo">
@@ -138,7 +204,7 @@
     <div class="main-container">
 
         <!-- PANEL IZQUIERDO: GRÁFICO DE PRECIOS -->
-        <div class="panel chart-price-panel">
+        <div class="panel chart-price-panel mobile-section" id="mob-section-charts">
             <div class="panel-header">
                 <div>
                     <div class="panel-title">
@@ -210,7 +276,7 @@
         </div>
 
         <!-- PANEL CENTRAL: GRÁFICO DE DÍGITOS -->
-        <div class="panel chart-digits-panel">
+        <div class="panel chart-digits-panel mobile-section-charts-sub">
             <div class="panel-header">
                 <div class="panel-title">
                     <i class="fas fa-chart-line"></i>
@@ -239,7 +305,7 @@
         </div>
 
         <!-- PANEL DERECHO: TRADING ESTRATEGIA -->
-        <div class="panel trading-panel">
+        <div class="panel trading-panel mobile-section" id="mob-section-trading">
             <div class="panel-header">
                 <div>
                     <div class="panel-title">
@@ -459,7 +525,7 @@
         </div>
 
         <!-- PANEL ESTRATEGIA: ANALIZADOR DE PATRÓN 5 DÍGITOS -->
-        <div class="panel strategy-panel" id="strategy-panel">
+        <div class="panel strategy-panel mobile-section" id="mob-section-signal">
             <div class="panel-header">
                 <div>
                     <div class="panel-title">
@@ -543,132 +609,221 @@
             <button class="backtest-close-btn" onclick="closeBacktest()"><i class="fas fa-times"></i></button>
         </div>
 
-        <!-- CONFIGURACIÓN -->
-        <div class="backtest-config">
-            <div class="backtest-config-row">
-                <div class="backtest-field">
-                    <label class="backtest-label"><i class="fas fa-chart-bar"></i> Activo</label>
-                    <select id="bt-asset" class="backtest-select">
-                        <option value="R_100">Volatility 100</option>
-                        <option value="R_10" selected>Volatility 10</option>
-                        <option value="R_25">Volatility 25</option>
-                        <option value="R_50">Volatility 50</option>
-                        <option value="R_75">Volatility 75</option>
-                    </select>
-                </div>
-                <div class="backtest-field">
-                    <label class="backtest-label"><i class="fas fa-clock"></i> Período a analizar</label>
-                    <select id="bt-period" class="backtest-select">
-                        <option value="900">15 minutos</option>
-                        <option value="1800">30 minutos</option>
-                        <option value="3600" selected>1 hora</option>
-                        <option value="7200">2 horas</option>
-                        <option value="14400">4 horas</option>
-                        <option value="28800">8 horas</option>
-                        <option value="86400">24 horas</option>
-                    </select>
-                </div>
-                <div class="backtest-field">
-                    <label class="backtest-label"><i class="fas fa-dollar-sign"></i> Stake simulado</label>
-                    <input type="number" id="bt-stake" class="backtest-input" value="1.00" min="0.1" step="0.1">
-                </div>
-            </div>
-            <button class="btn-run-backtest" id="btn-run-backtest" onclick="runBacktest()">
-                <i class="fas fa-play"></i> Ejecutar Backtest
+        <!-- TABS -->
+        <div class="bt-tabs">
+            <button class="bt-tab active" id="bt-tab-config" onclick="btSwitchTab('config')">
+                <i class="fas fa-sliders-h"></i> Configuración
+            </button>
+            <button class="bt-tab" id="bt-tab-compare" onclick="btSwitchTab('compare')">
+                <i class="fas fa-exchange-alt"></i> Comparar activos
+            </button>
+            <button class="bt-tab" id="bt-tab-history" onclick="btSwitchTab('history')">
+                <i class="fas fa-archive"></i> Historial de runs
             </button>
         </div>
 
-        <!-- PROGRESS -->
-        <div class="backtest-progress-wrap hidden" id="bt-progress-wrap">
-            <div class="bt-progress-label" id="bt-progress-label">Descargando ticks históricos...</div>
-            <div class="bt-progress-track">
-                <div class="bt-progress-fill" id="bt-progress-fill"></div>
+        <!-- ===== TAB: CONFIGURACIÓN ===== -->
+        <div class="bt-tab-content" id="bt-content-config">
+
+            <!-- CONFIGURACIÓN -->
+            <div class="backtest-config">
+                <div class="backtest-config-row">
+                    <div class="backtest-field">
+                        <label class="backtest-label"><i class="fas fa-chart-bar"></i> Activo</label>
+                        <select id="bt-asset" class="backtest-select">
+                            <option value="R_100">Volatility 100</option>
+                            <option value="R_10" selected>Volatility 10</option>
+                            <option value="R_25">Volatility 25</option>
+                            <option value="R_50">Volatility 50</option>
+                            <option value="R_75">Volatility 75</option>
+                        </select>
+                    </div>
+                    <div class="backtest-field">
+                        <label class="backtest-label"><i class="fas fa-clock"></i> Período</label>
+                        <select id="bt-period" class="backtest-select">
+                            <option value="900">15 minutos</option>
+                            <option value="1800">30 minutos</option>
+                            <option value="3600" selected>1 hora</option>
+                            <option value="7200">2 horas</option>
+                            <option value="14400">4 horas</option>
+                            <option value="28800">8 horas</option>
+                            <option value="86400">24 horas</option>
+                        </select>
+                    </div>
+                    <div class="backtest-field">
+                        <label class="backtest-label"><i class="fas fa-dollar-sign"></i> Stake</label>
+                        <input type="number" id="bt-stake" class="backtest-input" value="1.00" min="0.1" step="0.1">
+                    </div>
+                </div>
+
+                <button class="btn-run-backtest" id="btn-run-backtest" onclick="runBacktest()">
+                    <i class="fas fa-play"></i> Ejecutar Backtest
+                </button>
+            </div>
+
+            <!-- PROGRESS -->
+            <div class="backtest-progress-wrap hidden" id="bt-progress-wrap">
+                <div class="bt-progress-label" id="bt-progress-label">Descargando ticks históricos...</div>
+                <div class="bt-progress-track">
+                    <div class="bt-progress-fill" id="bt-progress-fill"></div>
+                </div>
+            </div>
+
+            <!-- RESULTADOS -->
+            <div class="backtest-results hidden" id="backtest-results">
+                <div class="bt-summary-grid">
+                    <div class="bt-summary-card bt-card-total">
+                        <div class="bt-card-icon"><i class="fas fa-list-ol"></i></div>
+                        <div class="bt-card-val" id="bt-total">0</div>
+                        <div class="bt-card-lbl">Total Señales</div>
+                    </div>
+                    <div class="bt-summary-card bt-card-win">
+                        <div class="bt-card-icon"><i class="fas fa-check-circle"></i></div>
+                        <div class="bt-card-val" id="bt-wins">0</div>
+                        <div class="bt-card-lbl">Ganadas</div>
+                    </div>
+                    <div class="bt-summary-card bt-card-loss">
+                        <div class="bt-card-icon"><i class="fas fa-times-circle"></i></div>
+                        <div class="bt-card-val" id="bt-losses">0</div>
+                        <div class="bt-card-lbl">Perdidas</div>
+                    </div>
+                    <div class="bt-summary-card bt-card-rate">
+                        <div class="bt-card-icon"><i class="fas fa-percentage"></i></div>
+                        <div class="bt-card-val" id="bt-rate">0%</div>
+                        <div class="bt-card-lbl">Efectividad</div>
+                    </div>
+                    <div class="bt-summary-card bt-card-profit">
+                        <div class="bt-card-icon"><i class="fas fa-wallet"></i></div>
+                        <div class="bt-card-val" id="bt-profit">$0.00</div>
+                        <div class="bt-card-lbl">P&L Simulado</div>
+                    </div>
+                    <div class="bt-summary-card bt-card-call">
+                        <div class="bt-card-icon"><i class="fas fa-arrow-up"></i></div>
+                        <div class="bt-card-val" id="bt-calls">0</div>
+                        <div class="bt-card-lbl">CALL</div>
+                    </div>
+                    <div class="bt-summary-card bt-card-put">
+                        <div class="bt-card-icon"><i class="fas fa-arrow-down"></i></div>
+                        <div class="bt-card-val" id="bt-puts">0</div>
+                        <div class="bt-card-lbl">PUT</div>
+                    </div>
+                    <div class="bt-summary-card bt-card-ticks">
+                        <div class="bt-card-icon"><i class="fas fa-bolt"></i></div>
+                        <div class="bt-card-val" id="bt-ticks">0</div>
+                        <div class="bt-card-lbl">Ticks analizados</div>
+                    </div>
+                </div>
+
+                <div class="bt-rate-bar-wrap">
+                    <div class="bt-rate-bar-labels">
+                        <span id="bt-rate-label-pct">0%</span>
+                        <span id="bt-rate-label-period"></span>
+                    </div>
+                    <div class="bt-rate-bar-track">
+                        <div class="bt-rate-bar-fill" id="bt-rate-bar-fill"></div>
+                    </div>
+                </div>
+
+                <!-- ANÁLISIS HORARIO AUTOMÁTICO -->
+                <div class="bt-hourly-section" id="bt-hourly-section">
+                    <div class="bt-hourly-title">
+                        <i class="fas fa-clock"></i> EFECTIVIDAD POR FRANJA HORARIA
+                        <span class="bt-hourly-subtitle" id="bt-hourly-subtitle"></span>
+                    </div>
+                    <div class="bt-hourly-best" id="bt-hourly-best"></div>
+                    <div class="bt-hourly-bars" id="bt-hourly-bars"></div>
+                </div>
+
+                <div class="bt-table-wrap">
+                    <div class="bt-table-header">
+                        <span><i class="fas fa-table"></i> DETALLE DE SEÑALES</span>
+                        <button class="btn-export-csv" onclick="exportBacktestCSV()"><i class="fas fa-file-csv"></i> Exportar</button>
+                    </div>
+                    <div class="bt-table-scroll">
+                        <table class="bt-table" id="bt-table">
+                            <thead>
+                                <tr><th>#</th><th>Hora</th><th>Tipo</th><th>Patrón</th><th>Resultado</th><th>P&L</th></tr>
+                            </thead>
+                            <tbody id="bt-table-body"></tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- RESULTADOS RESUMEN -->
-        <div class="backtest-results hidden" id="backtest-results">
-            <div class="bt-summary-grid">
-                <div class="bt-summary-card bt-card-total">
-                    <div class="bt-card-icon"><i class="fas fa-list-ol"></i></div>
-                    <div class="bt-card-val" id="bt-total">0</div>
-                    <div class="bt-card-lbl">Total Señales</div>
+        <!-- ===== TAB: COMPARAR ACTIVOS ===== -->
+        <div class="bt-tab-content hidden" id="bt-content-compare">
+            <div class="backtest-config">
+                <div class="backtest-config-row">
+                    <div class="backtest-field">
+                        <label class="backtest-label"><i class="fas fa-clock"></i> Período</label>
+                        <select id="bt-cmp-period" class="backtest-select">
+                            <option value="900">15 minutos</option>
+                            <option value="1800">30 minutos</option>
+                            <option value="3600" selected>1 hora</option>
+                            <option value="7200">2 horas</option>
+                            <option value="14400">4 horas</option>
+                            <option value="28800">8 horas</option>
+                        </select>
+                    </div>
+                    <div class="backtest-field">
+                        <label class="backtest-label"><i class="fas fa-dollar-sign"></i> Stake</label>
+                        <input type="number" id="bt-cmp-stake" class="backtest-input" value="1.00" min="0.1" step="0.1">
+                    </div>
                 </div>
-                <div class="bt-summary-card bt-card-win">
-                    <div class="bt-card-icon"><i class="fas fa-check-circle"></i></div>
-                    <div class="bt-card-val" id="bt-wins">0</div>
-                    <div class="bt-card-lbl">Ganadas</div>
+                <div class="bt-cmp-assets-select">
+                    <label class="backtest-label"><i class="fas fa-check-square"></i> Activos a comparar</label>
+                    <div class="bt-cmp-checkboxes">
+                        <label class="bt-cmp-check"><input type="checkbox" value="R_10"  checked> Volatility 10</label>
+                        <label class="bt-cmp-check"><input type="checkbox" value="R_25"  checked> Volatility 25</label>
+                        <label class="bt-cmp-check"><input type="checkbox" value="R_50"> Volatility 50</label>
+                        <label class="bt-cmp-check"><input type="checkbox" value="R_75"> Volatility 75</label>
+                        <label class="bt-cmp-check"><input type="checkbox" value="R_100"> Volatility 100</label>
+                    </div>
                 </div>
-                <div class="bt-summary-card bt-card-loss">
-                    <div class="bt-card-icon"><i class="fas fa-times-circle"></i></div>
-                    <div class="bt-card-val" id="bt-losses">0</div>
-                    <div class="bt-card-lbl">Perdidas</div>
-                </div>
-                <div class="bt-summary-card bt-card-rate">
-                    <div class="bt-card-icon"><i class="fas fa-percentage"></i></div>
-                    <div class="bt-card-val" id="bt-rate">0%</div>
-                    <div class="bt-card-lbl">Efectividad</div>
-                </div>
-                <div class="bt-summary-card bt-card-profit">
-                    <div class="bt-card-icon"><i class="fas fa-wallet"></i></div>
-                    <div class="bt-card-val" id="bt-profit">$0.00</div>
-                    <div class="bt-card-lbl">P&L Simulado</div>
-                </div>
-                <div class="bt-summary-card bt-card-call">
-                    <div class="bt-card-icon"><i class="fas fa-arrow-up"></i></div>
-                    <div class="bt-card-val" id="bt-calls">0</div>
-                    <div class="bt-card-lbl">CALL</div>
-                </div>
-                <div class="bt-summary-card bt-card-put">
-                    <div class="bt-card-icon"><i class="fas fa-arrow-down"></i></div>
-                    <div class="bt-card-val" id="bt-puts">0</div>
-                    <div class="bt-card-lbl">PUT</div>
-                </div>
-                <div class="bt-summary-card bt-card-ticks">
-                    <div class="bt-card-icon"><i class="fas fa-bolt"></i></div>
-                    <div class="bt-card-val" id="bt-ticks">0</div>
-                    <div class="bt-card-lbl">Ticks analizados</div>
-                </div>
+                <button class="btn-run-backtest" id="btn-run-compare" onclick="runCompare()">
+                    <i class="fas fa-exchange-alt"></i> Comparar activos
+                </button>
             </div>
-
-            <!-- Barra de efectividad -->
-            <div class="bt-rate-bar-wrap">
-                <div class="bt-rate-bar-labels">
-                    <span id="bt-rate-label-pct">0%</span>
-                    <span id="bt-rate-label-period"></span>
-                </div>
-                <div class="bt-rate-bar-track">
-                    <div class="bt-rate-bar-fill" id="bt-rate-bar-fill"></div>
-                </div>
+            <div class="backtest-progress-wrap hidden" id="bt-cmp-progress-wrap">
+                <div class="bt-progress-label" id="bt-cmp-progress-label">Iniciando...</div>
+                <div class="bt-progress-track"><div class="bt-progress-fill" id="bt-cmp-progress-fill"></div></div>
             </div>
-
-            <!-- TABLA DE SEÑALES DETALLADA -->
-            <div class="bt-table-wrap">
-                <div class="bt-table-header">
-                    <span><i class="fas fa-table"></i> DETALLE DE SEÑALES</span>
-                    <button class="btn-export-csv" onclick="exportBacktestCSV()"><i class="fas fa-file-csv"></i> Exportar</button>
-                </div>
-                <div class="bt-table-scroll">
-                    <table class="bt-table" id="bt-table">
+            <div class="hidden" id="bt-cmp-results">
+                <div class="bt-cmp-table-wrap">
+                    <table class="bt-table" id="bt-cmp-table">
                         <thead>
                             <tr>
-                                <th>#</th>
-                                <th>Hora</th>
-                                <th>Tipo</th>
-                                <th>Patrón</th>
-                                <th>Resultado</th>
-                                <th>P&L</th>
+                                <th>Activo</th><th>Señales</th><th>Ganadas</th><th>Perdidas</th>
+                                <th>Efectividad</th><th>CALL</th><th>PUT</th><th>P&L</th>
                             </tr>
                         </thead>
-                        <tbody id="bt-table-body"></tbody>
+                        <tbody id="bt-cmp-body"></tbody>
                     </table>
                 </div>
+                <div class="bt-cmp-bars" id="bt-cmp-bars"></div>
             </div>
         </div>
+
+        <!-- ===== TAB: HISTORIAL DE RUNS ===== -->
+        <div class="bt-tab-content hidden" id="bt-content-history">
+            <div class="bt-history-header">
+                <span class="backtest-label"><i class="fas fa-archive"></i> Runs guardados</span>
+                <button class="btn-export-csv bt-danger-btn" onclick="btClearHistory()">
+                    <i class="fas fa-trash"></i> Limpiar todo
+                </button>
+            </div>
+            <div class="bt-history-empty hidden" id="bt-history-empty">
+                <i class="fas fa-inbox"></i>
+                <p>Aún no hay runs guardados. Ejecuta un backtest y se guardará automáticamente.</p>
+            </div>
+            <div class="bt-history-list" id="bt-history-list"></div>
+        </div>
+
     </div>
 
-    <!-- Botón flotante para abrir backtest -->
-    <button class="btn-open-backtest" onclick="openBacktest()" title="Abrir Backtest">
+    <!-- Botón flotante para abrir backtest (solo desktop) -->
+    <button class="btn-open-backtest desktop-only" onclick="openBacktest()" title="Abrir Backtest">
         <i class="fas fa-flask"></i>
         <span>Backtest</span>
     </button>
