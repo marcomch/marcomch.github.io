@@ -1495,8 +1495,11 @@ function runStrategyAnalysis() {
     const blues = buf.filter(d =>  d.blue);
     const reds  = buf.filter(d => !d.blue);
 
-    const esPatronCALL = (reds.length === 3 && blues.length === 2);
-    const esPatronPUT  = (blues.length === 3 && reds.length === 2);
+    const primerEsRojo = !buf[0].blue;
+    const primerEsAzul =  buf[0].blue;
+
+    const esPatronCALL = (reds.length === 3 && blues.length === 2 && primerEsRojo);
+    const esPatronPUT  = (blues.length === 3 && reds.length === 2 && primerEsAzul);
 
     if (blueDigitsEl) blueDigitsEl.textContent = blues.length
         ? `${blues.map(d => d.value).join(' → ')}  (${blues.length})`
@@ -1510,8 +1513,13 @@ function runStrategyAnalysis() {
         const redNumDir  = reds.length  >= 2 ? analyzeSequence(reds.map(d  => d.value)) : null;
         updateDirEl(blueDirEl, blueNumDir === null ? null : toMarketDirection(blueNumDir, true),  blues.length);
         updateDirEl(redDirEl,  redNumDir  === null ? null : toMarketDirection(redNumDir,  false), reds.length);
-        setSignalUI('none', 'PROPORCIÓN INVÁLIDA',
-            `Rojos: ${reds.length} | Azules: ${blues.length} — Se requiere 3R+2A (CALL) o 3A+2R (PUT)`, true);
+        const propOkCall = reds.length === 3 && blues.length === 2;
+        const propOkPut  = blues.length === 3 && reds.length === 2;
+        let motivo = `R:${reds.length} A:${blues.length}`;
+        if (propOkCall && !primerEsRojo) motivo += ' — CALL requiere iniciar con R';
+        else if (propOkPut && !primerEsAzul) motivo += ' — PUT requiere iniciar con A';
+        else motivo += ' — Se requiere 3R+2A iniciando R (CALL) o 3A+2R iniciando A (PUT)';
+        setSignalUI('none', 'PATRÓN INVÁLIDO', motivo, true);
         return;
     }
 
@@ -1948,8 +1956,10 @@ function btEvalBuffer(buf) {
     if (buf.length < 5) return null;
     const blues = buf.filter(d =>  d.blue);
     const reds  = buf.filter(d => !d.blue);
-    const esCALL = reds.length  === 3 && blues.length === 2;
-    const esPUT  = blues.length === 3 && reds.length  === 2;
+    const primerEsRojo = !buf[0].blue;
+    const primerEsAzul =  buf[0].blue;
+    const esCALL = reds.length  === 3 && blues.length === 2 && primerEsRojo;
+    const esPUT  = blues.length === 3 && reds.length  === 2 && primerEsAzul;
     if (!esCALL && !esPUT) return null;
     const blueDir = blues.length >= 2 ? btAnalyzeSeq(blues.map(d => d.value)) : (blues.length === 1 ? 'one' : null);
     const redDir  = reds.length  >= 2 ? btAnalyzeSeq(reds.map(d  => d.value)) : (reds.length  === 1 ? 'one' : null);
