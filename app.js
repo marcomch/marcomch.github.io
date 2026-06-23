@@ -112,7 +112,7 @@ window.conectarConToken = function() {
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Conectando...';
 
-    const testWs = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
+    const testWs = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=33CzOUCYjN7i58a3fh9iG');
 
     testWs.onopen = () => { testWs.send(JSON.stringify({ authorize: token })); };
 
@@ -1294,7 +1294,7 @@ function updateDigit(price, wentUp) {
     addTickToHistory(formattedPrice, digit, wentUp ? 'UP' : 'DOWN');
     lastPrice = price;
 
-    feedStrategyDigit(Math.abs(processedVal), wentUp);
+    feedStrategyDigit(Math.abs(processedVal), wentUp, parseFloat(formattedPrice));
 
     requestAnimationFrame(() => {
         if (currentDigitEl) {
@@ -1313,7 +1313,7 @@ window.startFeed = function() {
     updateConnectionStatus('Conectando...', '#f39c12');
     isConnecting = true;
 
-    ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+    ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=33CzOUCYjN7i58a3fh9iG');
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
@@ -1408,8 +1408,8 @@ function highlightTradeButton(signal) {
     }
 }
 
-function feedStrategyDigit(digitValue, isBlue) {
-    strategyBuffer.push({ value: digitValue, blue: isBlue });
+function feedStrategyDigit(digitValue, isBlue, priceFloat) {
+    strategyBuffer.push({ value: digitValue, blue: isBlue, price: priceFloat || null });
     if (strategyBuffer.length > 5) strategyBuffer.shift();
     if (strategyPaused) return;
     runStrategyAnalysis();
@@ -1464,6 +1464,16 @@ function toMarketDirection(numericDir, isBlue) {
     else        return numericDir === 'down' ? 'alcista' : 'bajista';
 }
 
+function analyzePriceDirection(prices) {
+    // Verifica si una secuencia de precios tiene dirección consistente
+    if (prices.length < 2) return null;
+    const isUp   = prices.every((p, i) => i === 0 || p > prices[i - 1]);
+    const isDown = prices.every((p, i) => i === 0 || p < prices[i - 1]);
+    if (isUp)   return 'alcista';
+    if (isDown) return 'bajista';
+    return null;
+}
+
 function runStrategyAnalysis() {
     if (!patternDigitsRow) return;
 
@@ -1498,8 +1508,8 @@ function runStrategyAnalysis() {
     const primerEsRojo = !buf[0].blue;
     const primerEsAzul =  buf[0].blue;
 
-    const esPatronCALL = (reds.length === 3 && blues.length === 2 && primerEsRojo);
-    const esPatronPUT  = (blues.length === 3 && reds.length === 2 && primerEsAzul);
+    const esPatronCALL = (reds.length >= 2 && blues.length >= 2 && reds.length + blues.length === 5 && primerEsRojo);
+    const esPatronPUT  = (blues.length >= 2 && reds.length >= 2 && blues.length + reds.length === 5 && primerEsAzul);
 
     if (blueDigitsEl) blueDigitsEl.textContent = blues.length
         ? `${blues.map(d => d.value).join(' → ')}  (${blues.length})`
@@ -1513,12 +1523,10 @@ function runStrategyAnalysis() {
         const redNumDir  = reds.length  >= 2 ? analyzeSequence(reds.map(d  => d.value)) : null;
         updateDirEl(blueDirEl, blueNumDir === null ? null : toMarketDirection(blueNumDir, true),  blues.length);
         updateDirEl(redDirEl,  redNumDir  === null ? null : toMarketDirection(redNumDir,  false), reds.length);
-        const propOkCall = reds.length === 3 && blues.length === 2;
-        const propOkPut  = blues.length === 3 && reds.length === 2;
         let motivo = `R:${reds.length} A:${blues.length}`;
-        if (propOkCall && !primerEsRojo) motivo += ' — CALL requiere iniciar con R';
-        else if (propOkPut && !primerEsAzul) motivo += ' — PUT requiere iniciar con A';
-        else motivo += ' — Se requiere 3R+2A iniciando R (CALL) o 3A+2R iniciando A (PUT)';
+        if (!primerEsRojo && !primerEsAzul) motivo += ' — buffer vacío';
+        else if (blues.length < 2 || reds.length < 2) motivo += ' — Se requiere mín.2R+mín.2A';
+        else motivo += ' — Se requiere mín.2R+mín.2A iniciando R (CALL) o A (PUT)';
         setSignalUI('none', 'PATRÓN INVÁLIDO', motivo, true);
         return;
     }
@@ -1542,10 +1550,42 @@ function runStrategyAnalysis() {
         const isCall = blueMarket === 'alcista';
         const proporcionOk = isCall ? esPatronCALL : esPatronPUT;
         if (proporcionOk) {
-            setSignalUI(isCall ? 'call' : 'put',
-                isCall ? '🟢 CALL — ALCISTA' : '🔴 PUT — BAJISTA',
-                `Proporción ${isCall ? '3R+2A' : '3A+2R'} ✓ | Azules: ${blueMarket} | Rojos: ${redMarket}`,
-                true, isCall ? 'CALL' : 'PUT');
+            // Validación adicional: dirección de precios por grupo debe coincidir
+            const bluePrices = blues.map(d => d.price).filter(p => p !== null && p !== undefined);
+            const redPrices  = reds.map(d => d.price).filter(p => p !== null && p !== undefined);
+            let preciosOk = true;
+            let precioDetalle = '';
+
+            if (bluePrices.length >= 2) {
+                const bpDir = analyzePriceDirection(bluePrices);
+                if (bpDir === null) {
+                    preciosOk = false;
+                    precioDetalle = 'Precios azules sin dirección consistente';
+                } else if (bpDir !== blueMarket) {
+                    preciosOk = false;
+                    precioDetalle = `CONFLICTO PRECIO: Azules dígito=${blueMarket} precio=${bpDir}`;
+                }
+            }
+            if (preciosOk && redPrices.length >= 2) {
+                const rpDir = analyzePriceDirection(redPrices);
+                if (rpDir === null) {
+                    preciosOk = false;
+                    precioDetalle = 'Precios rojos sin dirección consistente';
+                } else if (rpDir !== redMarket) {
+                    preciosOk = false;
+                    precioDetalle = `CONFLICTO PRECIO: Rojos dígito=${redMarket} precio=${rpDir}`;
+                }
+            }
+
+            if (!preciosOk) {
+                setSignalUI('none', 'CONFLICTO PRECIO', precioDetalle, true);
+            } else {
+                const prop = isCall ? `${reds.length}R+${blues.length}A` : `${blues.length}A+${reds.length}R`;
+                setSignalUI(isCall ? 'call' : 'put',
+                    isCall ? '🟢 CALL — ALCISTA' : '🔴 PUT — BAJISTA',
+                    `${prop} ✓ | Azules: ${blueMarket} | Rojos: ${redMarket} | Precios ✓`,
+                    true, isCall ? 'CALL' : 'PUT');
+            }
         } else {
             setSignalUI('none', 'PROPORCIÓN CONFLICTO',
                 `Dirección ${blueMarket} pero proporción no coincide (R:${reds.length} A:${blues.length})`, true);
@@ -1756,7 +1796,7 @@ window.operarAutomatico = function(signal, stake, retries = 0) {
 function conectarDerivAPI() {
     if (!DERIV_API_TOKEN) return;
 
-    derivWs = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
+    derivWs = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=33CzOUCYjN7i58a3fh9iG');
     window.derivWs = derivWs;
 
     derivWs.onopen = () => {
@@ -1987,7 +2027,7 @@ function btFetchTicks(asset, period) {
     return new Promise((resolve, reject) => {
         const endTime   = Math.floor(Date.now() / 1000);
         const startTime = endTime - period;
-        const ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+        const ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=33CzOUCYjN7i58a3fh9iG');
         ws.onopen = () => {
             ws.send(JSON.stringify({ ticks_history: asset, start: startTime, end: endTime, style: 'ticks', count: 5000 }));
         };
