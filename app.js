@@ -94,7 +94,14 @@ let priceChartPosition = 1;
 let cachedAssetSelector = null;
 
 // ====================== TOKEN: MODAL Y GESTIÓN ======================
-window.conectarConToken = function() {
+// ====================== NUEVA API: CONSTANTES ======================
+const DERIV_API_BASE  = 'https://api.derivws.com';
+const DERIV_APP_ID    = '33CzOUCYjN7i58a3fh9iG';
+const WS_PUBLIC       = 'wss://api.derivws.com/trading/v1/options/ws/public';
+let   DERIV_ACCOUNT_ID = null;   // se obtiene tras login
+
+// ====================== NUEVA API: VALIDAR TOKEN (REST) ======================
+window.conectarConToken = async function() {
     const input   = document.getElementById('token-input');
     const errorEl = document.getElementById('token-error-msg');
     const btn     = document.getElementById('btn-connect-token');
@@ -112,56 +119,74 @@ window.conectarConToken = function() {
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Conectando...';
 
-    const testWs = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=33CzOUCYjN7i58a3fh9iG');
-
-    testWs.onopen = () => { testWs.send(JSON.stringify({ authorize: token })); };
-
-    testWs.onmessage = (msg) => {
-        const data = JSON.parse(msg.data);
-        testWs.close();
-
-        if (data.error) {
-            DERIV_API_TOKEN = '';
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-plug"></i> Conectar';
-            errorEl.textContent = '❌ Token inválido: ' + data.error.message;
-            errorEl.style.display = 'block';
-            return;
-        }
-
-        if (data.authorize) {
-            try { localStorage.setItem('deriv_token', token); } catch(e) {}
-
-            const badge = document.getElementById('token-badge');
-            if (badge) {
-                badge.classList.remove('hidden');
-                document.getElementById('token-badge-text').textContent =
-                    'Token: ' + token.substring(0, 4) + '...' + token.slice(-4);
+    try {
+        // 1. Obtener cuentas con Bearer Token
+        const resp = await fetch(`${DERIV_API_BASE}/trading/v1/options/accounts`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Deriv-App-ID':  DERIV_APP_ID,
+                'Content-Type':  'application/json'
             }
+        });
 
-            document.getElementById('token-modal-overlay').style.display = 'none';
-            conectarDerivAPI();
-
-            showInternalNotification(
-                '¡Conectado!',
-                'Cuenta: ' + data.authorize.loginid + ' | Balance: $' + parseFloat(data.authorize.balance).toFixed(2),
-                'success'
-            );
+        if (!resp.ok) {
+            const errData = await resp.json().catch(() => ({}));
+            throw new Error(errData?.errors?.[0]?.message || `HTTP ${resp.status} — Token inválido o sin permisos`);
         }
-    };
 
-    testWs.onerror = () => {
-        testWs.close();
+        const result = await resp.json();
+        // La respuesta contiene un array de cuentas; buscar demo o la primera
+        const accounts = result?.data || result?.accounts || result || [];
+        const accountArr = Array.isArray(accounts) ? accounts : Object.values(accounts);
+
+        if (!accountArr.length) throw new Error('No se encontraron cuentas asociadas al token.');
+
+        // Preferir cuenta demo para pruebas; si no hay, tomar la primera
+        const demoAcc = accountArr.find(a => a.account_type === 'demo' || a.is_virtual);
+        const chosen  = demoAcc || accountArr[0];
+        DERIV_ACCOUNT_ID = chosen.account_id || chosen.id || chosen.loginid;
+
+        const bal     = parseFloat(chosen.balance ?? 0).toFixed(2);
+        const loginid = chosen.loginid || chosen.account_id || DERIV_ACCOUNT_ID;
+
+        try { localStorage.setItem('deriv_token', token); } catch(e) {}
+
+        const badge = document.getElementById('token-badge');
+        if (badge) {
+            badge.classList.remove('hidden');
+            document.getElementById('token-badge-text').textContent =
+                'Token: ' + token.substring(0, 4) + '...' + token.slice(-4);
+        }
+
+        document.getElementById('token-modal-overlay').style.display = 'none';
+
+        // 2. Conectar WebSocket de trading autenticado vía OTP
+        await conectarDerivAPI();
+
+        balance = parseFloat(bal);
+        updateTradingDisplay();
+
+        showInternalNotification(
+            '¡Conectado!',
+            `Cuenta: ${loginid} | Balance: $${bal}`,
+            'success'
+        );
+
+    } catch (err) {
+        DERIV_API_TOKEN  = '';
+        DERIV_ACCOUNT_ID = null;
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-plug"></i> Conectar';
-        errorEl.textContent = '❌ Error de conexión. Verifica tu internet.';
+        errorEl.textContent = '❌ ' + (err.message || 'Error de conexión');
         errorEl.style.display = 'block';
-    };
+    }
 };
 
 window.cambiarToken = function() {
-    DERIV_API_TOKEN = '';
-    if (derivWs) { try { derivWs.close(); } catch(e) {} derivWs = null; }
+    DERIV_API_TOKEN  = '';
+    DERIV_ACCOUNT_ID = null;
+    if (derivWs) { try { derivWs.onclose = null; derivWs.close(); } catch(e) {} derivWs = null; }
     document.getElementById('token-input').value = '';
     document.getElementById('token-error-msg').style.display = 'none';
     document.getElementById('btn-connect-token').disabled = false;
@@ -1313,7 +1338,8 @@ window.startFeed = function() {
     updateConnectionStatus('Conectando...', '#f39c12');
     isConnecting = true;
 
-    ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=33CzOUCYjN7i58a3fh9iG');
+    // Nueva API: WebSocket público sin autenticación para ticks de mercado
+    ws = new WebSocket(WS_PUBLIC);
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
@@ -1756,8 +1782,6 @@ window.exportSignalsCSV = function() {
 // ====================== DERIV API ======================
 window.operarAutomatico = function(signal, stake, retries = 0) {
     if (!derivWs || derivWs.readyState !== WebSocket.OPEN) {
-        // FIX #2: Limitar reintentos a 3 para evitar acumulación de llamadas
-        // que generaban operaciones duplicadas cuando el WS finalmente abría.
         if (retries >= 3) {
             isTrading = false;
             strategyPaused = false;
@@ -1772,8 +1796,11 @@ window.operarAutomatico = function(signal, stake, retries = 0) {
             );
             return;
         }
-        conectarDerivAPI();
-        setTimeout(() => window.operarAutomatico(signal, stake, retries + 1), 3000);
+        conectarDerivAPI().then(() => {
+            setTimeout(() => window.operarAutomatico(signal, stake, retries + 1), 2000);
+        }).catch(() => {
+            setTimeout(() => window.operarAutomatico(signal, stake, retries + 1), 3000);
+        });
         return;
     }
 
@@ -1793,129 +1820,160 @@ window.operarAutomatico = function(signal, stake, retries = 0) {
     }));
 };
 
-function conectarDerivAPI() {
-    if (!DERIV_API_TOKEN) return;
+// Nueva API: conectar WebSocket autenticado vía OTP
+async function conectarDerivAPI() {
+    if (!DERIV_API_TOKEN || !DERIV_ACCOUNT_ID) return;
 
-    derivWs = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=33CzOUCYjN7i58a3fh9iG');
-    window.derivWs = derivWs;
+    // Cerrar conexión previa si existe
+    if (derivWs) { try { derivWs.onclose = null; derivWs.close(); } catch(e) {} derivWs = null; }
 
-    derivWs.onopen = () => {
-        derivWs.send(JSON.stringify({ authorize: DERIV_API_TOKEN }));
-    };
+    try {
+        // Paso 1: Obtener OTP → recibimos la URL del WebSocket autenticado
+        const resp = await fetch(
+            `${DERIV_API_BASE}/trading/v1/options/accounts/${DERIV_ACCOUNT_ID}/otp`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${DERIV_API_TOKEN}`,
+                    'Deriv-App-ID':  DERIV_APP_ID,
+                    'Content-Type':  'application/json'
+                }
+            }
+        );
 
-    derivWs.onmessage = (msg) => {
-        const data = JSON.parse(msg.data);
-
-        if (data.authorize) {
-            derivWs.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+        if (!resp.ok) {
+            const errData = await resp.json().catch(() => ({}));
+            throw new Error(errData?.errors?.[0]?.message || `OTP error HTTP ${resp.status}`);
         }
 
-        if (data.buy && data.buy.contract_id) {
-            const contract_id = data.buy.contract_id;
-            const stake       = parseFloat(data.buy.buy_price);
-            currentContract   = { contract_id, stake, timestamp: Date.now(), status: 'open' };
-            balance -= stake;
-            updateTradingDisplay();
-            derivWs.send(JSON.stringify({ proposal_open_contract: 1, contract_id, subscribe: 1 }));
-        }
+        const { data } = await resp.json();
+        const wsUrl = data?.url;
+        if (!wsUrl) throw new Error('No se recibió URL de WebSocket desde OTP');
 
-        if (data.proposal_open_contract) {
-            const contract = data.proposal_open_contract;
+        // Paso 2: Conectar al WebSocket autenticado con la URL del OTP
+        derivWs = new WebSocket(wsUrl);
+        window.derivWs = derivWs;
 
-            // FIX #1: La condición anterior (!activeTrade) bloqueaba el monitor si quedaba
-            // un activeTrade residual de una operación previa. Ahora solo verifica que no sea
-            // el mismo contrato ya siendo monitoreado, y que entry_tick_time sea válido.
-            if (contract.contract_id === currentContract?.contract_id &&
-                (!activeTrade || activeTrade.id !== contract.contract_id) &&
-                contract.entry_tick) {
-                const entryTime = contract.entry_tick_time
-                    ? new Date(contract.entry_tick_time * 1000)
-                    : new Date();
-                startTradeMonitorWithRealData(
-                    contract.contract_id,
-                    contract.contract_type,
-                    parseFloat(contract.entry_tick),
-                    parseFloat(contract.entry_tick_displayed || contract.entry_tick),
-                    entryTime
-                );
-            }
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('Timeout WebSocket trading')), 10000);
 
-            if (contract.tick_stream && contract.tick_stream.length > 0 && activeTrade && activeTrade.id === contract.contract_id) {
-                contractTicks = contract.tick_stream.map(t => ({
-                    price: parseFloat(t.tick), timestamp: t.tick_time * 1000, tick_index: t.tick_count || t.tick_index || 1
-                }));
-                if (contractTicks.length > 0) updateMonitorWithRealData(contractTicks);
-            }
+            derivWs.onopen = () => {
+                clearTimeout(timeout);
+                // Suscribir al balance inmediatamente
+                derivWs.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+                resolve();
+            };
 
-            if (contract.is_sold) {
-                const profit      = parseFloat(contract.profit);
-                const exitTick    = parseFloat(contract.exit_tick);
-                const contract_id = contract.contract_id;
-                const contractType = contract.contract_type || (activeTrade ? activeTrade.type : '');
+            derivWs.onmessage = (msg) => {
+                const data = JSON.parse(msg.data);
 
-                if (activeTrade && activeTrade.id === contract_id) {
-                    activeTrade.currentPrice = exitTick;
-                    activeTrade.profitLoss   = profit;
-                    activeTrade.isWinning    = profit > 0;
-                    contractTicks.push({ price: exitTick, timestamp: Date.now(), tick_index: 5 });
-                    updateMonitorWithRealData(contractTicks);
+                if (data.balance) {
+                    balance = parseFloat(data.balance.balance);
+                    updateTradingDisplay();
                 }
 
-                procesarResultadoTrading(profit, contractType);
-                mostrarResultadoOperacion(profit, contract.status, contract_id);
-                derivWs.send(JSON.stringify({ proposal_open_contract: 0, contract_id, subscribe: 0 }));
+                if (data.buy && data.buy.contract_id) {
+                    const contract_id = data.buy.contract_id;
+                    const stake       = parseFloat(data.buy.buy_price);
+                    currentContract   = { contract_id, stake, timestamp: Date.now(), status: 'open' };
+                    balance -= stake;
+                    updateTradingDisplay();
+                    derivWs.send(JSON.stringify({ proposal_open_contract: 1, contract_id, subscribe: 1 }));
+                }
+
+                if (data.proposal_open_contract) {
+                    const contract = data.proposal_open_contract;
+
+                    if (contract.contract_id === currentContract?.contract_id &&
+                        (!activeTrade || activeTrade.id !== contract.contract_id) &&
+                        contract.entry_tick) {
+                        const entryTime = contract.entry_tick_time
+                            ? new Date(contract.entry_tick_time * 1000)
+                            : new Date();
+                        startTradeMonitorWithRealData(
+                            contract.contract_id,
+                            contract.contract_type,
+                            parseFloat(contract.entry_tick),
+                            parseFloat(contract.entry_tick_displayed || contract.entry_tick),
+                            entryTime
+                        );
+                    }
+
+                    if (contract.tick_stream && contract.tick_stream.length > 0 && activeTrade && activeTrade.id === contract.contract_id) {
+                        contractTicks = contract.tick_stream.map(t => ({
+                            price: parseFloat(t.tick), timestamp: t.tick_time * 1000, tick_index: t.tick_count || t.tick_index || 1
+                        }));
+                        if (contractTicks.length > 0) updateMonitorWithRealData(contractTicks);
+                    }
+
+                    if (contract.is_sold) {
+                        const profit       = parseFloat(contract.profit);
+                        const exitTick     = parseFloat(contract.exit_tick);
+                        const contract_id  = contract.contract_id;
+                        const contractType = contract.contract_type || (activeTrade ? activeTrade.type : '');
+
+                        if (activeTrade && activeTrade.id === contract_id) {
+                            activeTrade.currentPrice = exitTick;
+                            activeTrade.profitLoss   = profit;
+                            activeTrade.isWinning    = profit > 0;
+                            contractTicks.push({ price: exitTick, timestamp: Date.now(), tick_index: 5 });
+                            updateMonitorWithRealData(contractTicks);
+                        }
+
+                        procesarResultadoTrading(profit, contractType);
+                        mostrarResultadoOperacion(profit, contract.status, contract_id);
+                        derivWs.send(JSON.stringify({ proposal_open_contract: 0, contract_id, subscribe: 0 }));
+                        currentContract = null;
+                    }
+                }
+
+                if (data.error) {
+                    if (data.error.code === 'ContractBuyValidation' || data.error.code === 'InvalidContract') {
+                        if (currentContract) balance += currentContract.stake;
+                        isTrading = false;
+                        if (tradeStatusEl) {
+                            tradeStatusEl.textContent = 'ERROR';
+                            tradeStatusEl.style.color = '#e74c3c';
+                            setTimeout(() => { tradeStatusEl.textContent = 'LISTO'; tradeStatusEl.style.color = '#27ae60'; }, 3000);
+                        }
+                        stopTradeMonitor();
+                        currentContract = null;
+                        updateTradingDisplay();
+                    }
+                }
+            };
+
+            derivWs.onerror = () => {
+                clearTimeout(timeout);
+                if (isTrading) {
+                    isTrading = false;
+                    if (tradeStatusEl) {
+                        tradeStatusEl.textContent = 'ERROR';
+                        tradeStatusEl.style.color = '#e74c3c';
+                        setTimeout(() => { tradeStatusEl.textContent = 'LISTO'; tradeStatusEl.style.color = '#27ae60'; }, 3000);
+                    }
+                    stopTradeMonitor();
+                    currentContract = null;
+                    strategyPaused = false;
+                    updateTradingDisplay();
+                    showInternalNotification('⚠️ Error de conexión', 'Se perdió la conexión durante la operación.', 'error');
+                }
+                reject(new Error('WebSocket error'));
+            };
+
+            derivWs.onclose = () => {
                 currentContract = null;
-            }
-        }
+                // Reconectar automáticamente si aún hay token y cuenta
+                if (DERIV_API_TOKEN && DERIV_ACCOUNT_ID) {
+                    setTimeout(() => conectarDerivAPI(), 5000);
+                }
+            };
+        });
 
-        if (data.balance) {
-            balance = parseFloat(data.balance.balance);
-            updateTradingDisplay();
-        }
-
-        if (data.error) {
-            if (data.error.code === 'ContractBuyValidation' || data.error.code === 'InvalidContract') {
-                if (currentContract) balance += currentContract.stake;
-                isTrading = false;
-                tradeStatusEl.textContent = 'ERROR';
-                tradeStatusEl.style.color = '#e74c3c';
-                stopTradeMonitor();
-                setTimeout(() => { tradeStatusEl.textContent = 'LISTO'; tradeStatusEl.style.color = '#27ae60'; }, 3000);
-                currentContract = null;
-                updateTradingDisplay();
-            }
-        }
-    };
-
-    // FIX #4: El onerror anterior estaba vacío. Si ocurría un error durante
-    // una operación, isTrading quedaba true bloqueando todas las operaciones futuras.
-    derivWs.onerror = () => {
-        if (isTrading) {
-            isTrading = false;
-            if (tradeStatusEl) {
-                tradeStatusEl.textContent = 'ERROR';
-                tradeStatusEl.style.color = '#e74c3c';
-                setTimeout(() => {
-                    tradeStatusEl.textContent = 'LISTO';
-                    tradeStatusEl.style.color = '#27ae60';
-                }, 3000);
-            }
-            stopTradeMonitor();
-            currentContract = null;
-            strategyPaused = false;
-            updateTradingDisplay();
-            showInternalNotification(
-                '⚠️ Error de conexión',
-                'Se perdió la conexión durante la operación. El sistema se ha restablecido.',
-                'error'
-            );
-        }
-    };
-
-    derivWs.onclose = () => {
-        currentContract = null;
-        if (DERIV_API_TOKEN) setTimeout(conectarDerivAPI, 5000);
-    };
+    } catch(err) {
+        showInternalNotification('⚠️ Error al conectar trading', err.message, 'error');
+        throw err;
+    }
 }
 
 // ====================== BACKTEST ======================
@@ -2027,7 +2085,8 @@ function btFetchTicks(asset, period) {
     return new Promise((resolve, reject) => {
         const endTime   = Math.floor(Date.now() / 1000);
         const startTime = endTime - period;
-        const ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=33CzOUCYjN7i58a3fh9iG');
+        // Nueva API: usar WebSocket público para datos históricos
+        const ws = new WebSocket(WS_PUBLIC);
         ws.onopen = () => {
             ws.send(JSON.stringify({ ticks_history: asset, start: startTime, end: endTime, style: 'ticks', count: 5000 }));
         };
