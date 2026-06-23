@@ -98,7 +98,26 @@ let cachedAssetSelector = null;
 const DERIV_API_BASE  = 'https://api.derivws.com';
 const DERIV_APP_ID    = '33CzOUCYjN7i58a3fh9iG';
 const WS_PUBLIC       = 'wss://api.derivws.com/trading/v1/options/ws/public';
-let   DERIV_ACCOUNT_ID = null;   // se obtiene tras login
+
+// Mapa de símbolos: selector UI → nuevo símbolo API
+const SYMBOL_MAP = {
+    'R_10':    '1HZ10V',
+    'R_25':    '1HZ25V',
+    'R_50':    '1HZ50V',
+    'R_75':    '1HZ75V',
+    'R_100':   '1HZ100V',
+    'RDBEAR':  'RDBEAR',
+    'RDBULL':  'RDBULL',
+    'frxEURUSD': 'frxEURUSD',
+    'frxEURJPY': 'frxEURJPY'
+};
+
+function getApiSymbol(uiAsset) {
+    return SYMBOL_MAP[uiAsset] || uiAsset;
+}
+
+let DERIV_ACCOUNT_ID   = null;   // ej: "DOT90004580"
+let DERIV_ACCOUNT_TYPE = 'demo'; // 'demo' o 'real'
 
 // ====================== NUEVA API: VALIDAR TOKEN (REST) ======================
 window.conectarConToken = async function() {
@@ -120,35 +139,60 @@ window.conectarConToken = async function() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Conectando...';
 
     try {
-        // 1. Obtener cuentas con Bearer Token
+        // PASO 1: Obtener/crear cuenta demo con POST (según documentación oficial)
         const resp = await fetch(`${DERIV_API_BASE}/trading/v1/options/accounts`, {
-            method: 'GET',
+            method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Deriv-App-ID':  DERIV_APP_ID,
                 'Content-Type':  'application/json'
-            }
+            },
+            body: JSON.stringify({
+                currency:     'USD',
+                group:        'row',
+                account_type: 'demo'
+            })
         });
 
         if (!resp.ok) {
             const errData = await resp.json().catch(() => ({}));
-            throw new Error(errData?.errors?.[0]?.message || `HTTP ${resp.status} — Token inválido o sin permisos`);
+            const msg = errData?.errors?.[0]?.message || `HTTP ${resp.status}`;
+            throw new Error(msg);
         }
 
         const result = await resp.json();
-        // La respuesta contiene un array de cuentas; buscar demo o la primera
-        const accounts = result?.data || result?.accounts || result || [];
-        const accountArr = Array.isArray(accounts) ? accounts : Object.values(accounts);
 
-        if (!accountArr.length) throw new Error('No se encontraron cuentas asociadas al token.');
+        // Extraer accountId — formato esperado: "DOT90004580"
+        // La respuesta puede tener data.account_id, data.id, o data directamente
+        const data = result?.data || result;
+        DERIV_ACCOUNT_ID   = data?.account_id || data?.id || data?.loginid || null;
+        DERIV_ACCOUNT_TYPE = data?.account_type || 'demo';
 
-        // Preferir cuenta demo para pruebas; si no hay, tomar la primera
-        const demoAcc = accountArr.find(a => a.account_type === 'demo' || a.is_virtual);
-        const chosen  = demoAcc || accountArr[0];
-        DERIV_ACCOUNT_ID = chosen.account_id || chosen.id || chosen.loginid;
+        if (!DERIV_ACCOUNT_ID) {
+            // Si ya tiene cuenta, GET para listarlas
+            const listResp = await fetch(`${DERIV_API_BASE}/trading/v1/options/accounts`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Deriv-App-ID':  DERIV_APP_ID
+                }
+            });
+            if (listResp.ok) {
+                const listData = await listResp.json();
+                const accounts = listData?.data || listData?.accounts || listData || [];
+                const arr = Array.isArray(accounts) ? accounts : Object.values(accounts);
+                const demo = arr.find(a => a.account_type === 'demo' || a.is_virtual) || arr[0];
+                if (demo) {
+                    DERIV_ACCOUNT_ID   = demo.account_id || demo.id || demo.loginid;
+                    DERIV_ACCOUNT_TYPE = demo.account_type || 'demo';
+                }
+            }
+        }
 
-        const bal     = parseFloat(chosen.balance ?? 0).toFixed(2);
-        const loginid = chosen.loginid || chosen.account_id || DERIV_ACCOUNT_ID;
+        if (!DERIV_ACCOUNT_ID) throw new Error('No se pudo obtener el ID de cuenta. Verifica los permisos del token.');
+
+        const bal     = parseFloat(data?.balance ?? 0).toFixed(2);
+        const loginid = DERIV_ACCOUNT_ID;
 
         try { localStorage.setItem('deriv_token', token); } catch(e) {}
 
@@ -161,15 +205,14 @@ window.conectarConToken = async function() {
 
         document.getElementById('token-modal-overlay').style.display = 'none';
 
-        // 2. Conectar WebSocket de trading autenticado vía OTP
+        // PASO 2: Conectar WebSocket autenticado vía OTP
         await conectarDerivAPI();
 
-        balance = parseFloat(bal);
-        updateTradingDisplay();
+        if (parseFloat(bal) > 0) { balance = parseFloat(bal); updateTradingDisplay(); }
 
         showInternalNotification(
             '¡Conectado!',
-            `Cuenta: ${loginid} | Balance: $${bal}`,
+            `Cuenta: ${loginid} | Tipo: ${DERIV_ACCOUNT_TYPE}`,
             'success'
         );
 
@@ -1344,7 +1387,7 @@ window.startFeed = function() {
 
     ws.onopen = () => {
         isConnecting = false;
-        ws.send(JSON.stringify({ ticks: currentAsset, subscribe: 1 }));
+        ws.send(JSON.stringify({ ticks: getApiSymbol(currentAsset), subscribe: 1 }));
         running = true;
         updateConnectionStatus('Conectado', '#27ae60');
     };
@@ -1804,7 +1847,7 @@ window.operarAutomatico = function(signal, stake, retries = 0) {
         return;
     }
 
-    const symbol = cachedAssetSelector ? cachedAssetSelector.value : 'R_10';
+    const symbol = getApiSymbol(cachedAssetSelector ? cachedAssetSelector.value : 'R_10');
     derivWs.send(JSON.stringify({
         buy: 1,
         price: stake,
@@ -2088,7 +2131,7 @@ function btFetchTicks(asset, period) {
         // Nueva API: usar WebSocket público para datos históricos
         const ws = new WebSocket(WS_PUBLIC);
         ws.onopen = () => {
-            ws.send(JSON.stringify({ ticks_history: asset, start: startTime, end: endTime, style: 'ticks', count: 5000 }));
+            ws.send(JSON.stringify({ ticks_history: getApiSymbol(asset), start: startTime, end: endTime, style: 'ticks', count: 5000 }));
         };
         ws.onmessage = (msg) => {
             const data = JSON.parse(msg.data);
