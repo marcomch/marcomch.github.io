@@ -97,7 +97,7 @@ let cachedAssetSelector = null;
 // ====================== NUEVA API: CONSTANTES ======================
 const DERIV_API_BASE  = 'https://api.derivws.com';
 const DERIV_APP_ID    = '33CzOUCYjN7i58a3fh9iG';
-const WS_PUBLIC       = 'wss://api.derivws.com/trading/v1/options/ws/public';
+const WS_PUBLIC       = 'wss://ws.derivws.com/websockets/v3?app_id=1089';
 
 // Mapa de símbolos: selector UI → nuevo símbolo API
 const SYMBOL_MAP = {
@@ -1387,7 +1387,7 @@ window.startFeed = function() {
 
     ws.onopen = () => {
         isConnecting = false;
-        ws.send(JSON.stringify({ ticks: getApiSymbol(currentAsset), subscribe: 1 }));
+        ws.send(JSON.stringify({ ticks: currentAsset, subscribe: 1 }));
         running = true;
         updateConnectionStatus('Conectado', '#27ae60');
     };
@@ -2131,7 +2131,7 @@ function btFetchTicks(asset, period) {
         // Nueva API: usar WebSocket público para datos históricos
         const ws = new WebSocket(WS_PUBLIC);
         ws.onopen = () => {
-            ws.send(JSON.stringify({ ticks_history: getApiSymbol(asset), start: startTime, end: endTime, style: 'ticks', count: 5000 }));
+            ws.send(JSON.stringify({ ticks_history: asset, start: startTime, end: endTime, style: 'ticks', count: 5000 }));
         };
         ws.onmessage = (msg) => {
             const data = JSON.parse(msg.data);
