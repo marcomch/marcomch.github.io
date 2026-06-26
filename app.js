@@ -37,6 +37,11 @@ let tradingStake   = 1.00;
 let currentContract = null;
 let isTrading      = false;
 
+// Control de flujo proposal → buy (nueva API)
+let _pendingProposalReqId = null;
+let _pendingProposalStake = null;
+let _pendingProposalSubId = null; // suscripción del proposal a olvidar tras comprar
+
 // Stop Win / Stop Loss
 let stopWinAmount  = 0;   // 0 = desactivado
 let stopLossAmount = 0;   // 0 = desactivado
@@ -97,7 +102,8 @@ let cachedAssetSelector = null;
 // ====================== NUEVA API: CONSTANTES ======================
 const DERIV_API_BASE  = 'https://api.derivws.com';
 const DERIV_APP_ID    = '33CzOUCYjN7i58a3fh9iG';
-const WS_PUBLIC       = 'wss://ws.derivws.com/websockets/v3?app_id=1089';
+// Feed de precios: WS público clásico — devuelve data.tick.quote correctamente
+const WS_PUBLIC       = 'wss://ws.binaryws.com/websockets/v3?app_id=1089';
 
 // Mapa de símbolos: selector UI → nuevo símbolo API
 const SYMBOL_MAP = {
@@ -1387,6 +1393,7 @@ window.startFeed = function() {
 
     ws.onopen = () => {
         isConnecting = false;
+        // WS clásico acepta símbolos UI directos (R_10, R_25, etc.)
         ws.send(JSON.stringify({ ticks: currentAsset, subscribe: 1 }));
         running = true;
         updateConnectionStatus('Conectado', '#27ae60');
@@ -1847,20 +1854,28 @@ window.operarAutomatico = function(signal, stake, retries = 0) {
         return;
     }
 
+    // La nueva API requiere el flujo: proposal → buy (con proposal_id)
+    // No soporta buy directo con parameters como el WS clásico.
     const symbol = getApiSymbol(cachedAssetSelector ? cachedAssetSelector.value : 'R_10');
+    const reqId  = Date.now(); // ID único para emparejar proposal → buy
+
+    // Paso 1: solicitar proposal para obtener el proposal_id
     derivWs.send(JSON.stringify({
-        buy: 1,
-        price: stake,
-        parameters: {
-            amount: stake,
-            basis: 'stake',
-            contract_type: signal === 'UP' ? 'CALL' : 'PUT',
-            currency: 'USD',
-            duration: DURATION,
-            duration_unit: 't',
-            symbol
-        }
+        proposal:      1,
+        req_id:        reqId,
+        amount:        stake,
+        basis:         'stake',
+        contract_type: signal === 'UP' ? 'CALL' : 'PUT',
+        currency:      'USD',
+        duration:      DURATION,
+        duration_unit: 't',
+        symbol
     }));
+
+    // El proposal_id se recibe en onmessage → data.proposal → se compra en ese handler
+    // Guardamos el reqId para identificar la respuesta del proposal
+    _pendingProposalReqId = reqId;
+    _pendingProposalStake = stake;
 };
 
 // Nueva API: conectar WebSocket autenticado vía OTP
@@ -1915,6 +1930,25 @@ async function conectarDerivAPI() {
                     updateTradingDisplay();
                 }
 
+                // PASO 1 del flujo de compra: recibimos el proposal_id → ejecutar buy
+                if (data.proposal && data.req_id === _pendingProposalReqId) {
+                    const proposalId    = data.proposal.id;
+                    const proposalPrice = parseFloat(data.proposal.ask_price || _pendingProposalStake);
+                    _pendingProposalSubId = data.proposal.id; // mismo id sirve para forget
+
+                    // Olvidar la suscripción del proposal antes de comprar
+                    derivWs.send(JSON.stringify({ forget: proposalId }));
+
+                    // PASO 2: buy con el proposal_id obtenido
+                    derivWs.send(JSON.stringify({
+                        buy:   proposalId,
+                        price: proposalPrice
+                    }));
+
+                    _pendingProposalReqId = null;
+                    _pendingProposalStake = null;
+                }
+
                 if (data.buy && data.buy.contract_id) {
                     const contract_id = data.buy.contract_id;
                     const stake       = parseFloat(data.buy.buy_price);
@@ -1954,6 +1988,8 @@ async function conectarDerivAPI() {
                         const exitTick     = parseFloat(contract.exit_tick);
                         const contract_id  = contract.contract_id;
                         const contractType = contract.contract_type || (activeTrade ? activeTrade.type : '');
+                        // Guardar subscription_id para hacer forget correcto
+                        const pocSubId     = contract.id || null;
 
                         if (activeTrade && activeTrade.id === contract_id) {
                             activeTrade.currentPrice = exitTick;
@@ -1965,15 +2001,29 @@ async function conectarDerivAPI() {
 
                         procesarResultadoTrading(profit, contractType);
                         mostrarResultadoOperacion(profit, contract.status, contract_id);
-                        derivWs.send(JSON.stringify({ proposal_open_contract: 0, contract_id, subscribe: 0 }));
+
+                        // Fix: usar forget con el id de suscripción, no proposal_open_contract:0
+                        if (pocSubId) {
+                            derivWs.send(JSON.stringify({ forget: pocSubId }));
+                        } else {
+                            // fallback: forget_all del tipo si no hay id
+                            derivWs.send(JSON.stringify({ forget_all: 'proposal_open_contract' }));
+                        }
                         currentContract = null;
                     }
                 }
 
                 if (data.error) {
-                    if (data.error.code === 'ContractBuyValidation' || data.error.code === 'InvalidContract') {
+                    // Error en proposal: limpiar estado pendiente
+                    if (data.req_id === _pendingProposalReqId) {
+                        _pendingProposalReqId = null;
+                        _pendingProposalStake = null;
+                    }
+                    if (data.error.code === 'ContractBuyValidation' || data.error.code === 'InvalidContract' ||
+                        data.error.code === 'ProposalNotFound' || data.error.code === 'ContractValidationError') {
                         if (currentContract) balance += currentContract.stake;
                         isTrading = false;
+                        strategyPaused = false;
                         if (tradeStatusEl) {
                             tradeStatusEl.textContent = 'ERROR';
                             tradeStatusEl.style.color = '#e74c3c';
@@ -1982,6 +2032,7 @@ async function conectarDerivAPI() {
                         stopTradeMonitor();
                         currentContract = null;
                         updateTradingDisplay();
+                        showInternalNotification('❌ Error en operación', data.error.message || data.error.code, 'error');
                     }
                 }
             };
@@ -2128,7 +2179,7 @@ function btFetchTicks(asset, period) {
     return new Promise((resolve, reject) => {
         const endTime   = Math.floor(Date.now() / 1000);
         const startTime = endTime - period;
-        // Nueva API: usar WebSocket público para datos históricos
+        // Usar WS_PUBLIC (clásico) que acepta símbolo UI y devuelve data.history correctamente
         const ws = new WebSocket(WS_PUBLIC);
         ws.onopen = () => {
             ws.send(JSON.stringify({ ticks_history: asset, start: startTime, end: endTime, style: 'ticks', count: 5000 }));
