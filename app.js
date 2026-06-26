@@ -37,11 +37,6 @@ let tradingStake   = 1.00;
 let currentContract = null;
 let isTrading      = false;
 
-// Control de flujo proposal → buy (nueva API)
-let _pendingProposalReqId = null;
-let _pendingProposalStake = null;
-let _pendingProposalSubId = null; // suscripción del proposal a olvidar tras comprar
-
 // Stop Win / Stop Loss
 let stopWinAmount  = 0;   // 0 = desactivado
 let stopLossAmount = 0;   // 0 = desactivado
@@ -1854,28 +1849,23 @@ window.operarAutomatico = function(signal, stake, retries = 0) {
         return;
     }
 
-    // La nueva API requiere el flujo: proposal → buy (con proposal_id)
-    // No soporta buy directo con parameters como el WS clásico.
-    const symbol = getApiSymbol(cachedAssetSelector ? cachedAssetSelector.value : 'R_10');
-    const reqId  = Date.now(); // ID único para emparejar proposal → buy
+    // Schema oficial Deriv: buy:"1" con parameters.underlying_symbol (NO "symbol")
+    // buy:"1" es el modo directo sin proposal previo — válido según schema oficial.
+    const underlying_symbol = getApiSymbol(cachedAssetSelector ? cachedAssetSelector.value : 'R_10');
 
-    // Paso 1: solicitar proposal para obtener el proposal_id
     derivWs.send(JSON.stringify({
-        proposal:      1,
-        req_id:        reqId,
-        amount:        stake,
-        basis:         'stake',
-        contract_type: signal === 'UP' ? 'CALL' : 'PUT',
-        currency:      'USD',
-        duration:      DURATION,
-        duration_unit: 't',
-        symbol
+        buy:   '1',       // string "1", no integer
+        price: stake,     // precio máximo a pagar
+        parameters: {
+            amount:            stake,
+            basis:             'stake',
+            contract_type:     signal === 'UP' ? 'CALL' : 'PUT',
+            currency:          'USD',
+            duration:          DURATION,
+            duration_unit:     't',
+            underlying_symbol  // campo correcto según schema oficial (NO "symbol")
+        }
     }));
-
-    // El proposal_id se recibe en onmessage → data.proposal → se compra en ese handler
-    // Guardamos el reqId para identificar la respuesta del proposal
-    _pendingProposalReqId = reqId;
-    _pendingProposalStake = stake;
 };
 
 // Nueva API: conectar WebSocket autenticado vía OTP
@@ -1930,25 +1920,6 @@ async function conectarDerivAPI() {
                     updateTradingDisplay();
                 }
 
-                // PASO 1 del flujo de compra: recibimos el proposal_id → ejecutar buy
-                if (data.proposal && data.req_id === _pendingProposalReqId) {
-                    const proposalId    = data.proposal.id;
-                    const proposalPrice = parseFloat(data.proposal.ask_price || _pendingProposalStake);
-                    _pendingProposalSubId = data.proposal.id; // mismo id sirve para forget
-
-                    // Olvidar la suscripción del proposal antes de comprar
-                    derivWs.send(JSON.stringify({ forget: proposalId }));
-
-                    // PASO 2: buy con el proposal_id obtenido
-                    derivWs.send(JSON.stringify({
-                        buy:   proposalId,
-                        price: proposalPrice
-                    }));
-
-                    _pendingProposalReqId = null;
-                    _pendingProposalStake = null;
-                }
-
                 if (data.buy && data.buy.contract_id) {
                     const contract_id = data.buy.contract_id;
                     const stake       = parseFloat(data.buy.buy_price);
@@ -1988,7 +1959,6 @@ async function conectarDerivAPI() {
                         const exitTick     = parseFloat(contract.exit_tick);
                         const contract_id  = contract.contract_id;
                         const contractType = contract.contract_type || (activeTrade ? activeTrade.type : '');
-                        // Guardar subscription_id para hacer forget correcto
                         const pocSubId     = contract.id || null;
 
                         if (activeTrade && activeTrade.id === contract_id) {
@@ -2002,11 +1972,10 @@ async function conectarDerivAPI() {
                         procesarResultadoTrading(profit, contractType);
                         mostrarResultadoOperacion(profit, contract.status, contract_id);
 
-                        // Fix: usar forget con el id de suscripción, no proposal_open_contract:0
+                        // Cancelar suscripción correctamente con forget
                         if (pocSubId) {
                             derivWs.send(JSON.stringify({ forget: pocSubId }));
                         } else {
-                            // fallback: forget_all del tipo si no hay id
                             derivWs.send(JSON.stringify({ forget_all: 'proposal_open_contract' }));
                         }
                         currentContract = null;
@@ -2014,15 +1983,12 @@ async function conectarDerivAPI() {
                 }
 
                 if (data.error) {
-                    // Error en proposal: limpiar estado pendiente
-                    if (data.req_id === _pendingProposalReqId) {
-                        _pendingProposalReqId = null;
-                        _pendingProposalStake = null;
-                    }
-                    if (data.error.code === 'ContractBuyValidation' || data.error.code === 'InvalidContract' ||
-                        data.error.code === 'ProposalNotFound' || data.error.code === 'ContractValidationError') {
+                    console.error('❌ Deriv API error:', data.error.code, data.error.message);
+                    if (data.error.code === 'ContractBuyValidation' ||
+                        data.error.code === 'InvalidContract'        ||
+                        data.error.code === 'ContractValidationError') {
                         if (currentContract) balance += currentContract.stake;
-                        isTrading = false;
+                        isTrading      = false;
                         strategyPaused = false;
                         if (tradeStatusEl) {
                             tradeStatusEl.textContent = 'ERROR';
