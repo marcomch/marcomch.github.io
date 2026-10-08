@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style2.css">
     <title>Trading Manual - Volatility Digits</title>
     <style>
         /* Estilos CSS aquí (se mantienen igual) */
@@ -133,6 +133,18 @@
                     <span>GRÁFICO DE PRECIOS</span>
                 </div>
                 <div class="panel-controls">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:0.8rem;color:#95a5a6;cursor:pointer;">
+                        <input type="checkbox" id="zigzag-toggle" checked> ZigZag
+                    </label>
+                    <select id="zigzag-pct" class="digit-sample-select" title="Reversión mínima (%) para confirmar un pivote" style="margin-left:0;">
+                        <option value="0.005">0.005 %</option>
+                        <option value="0.01" selected>0.01 %</option>
+                        <option value="0.02">0.02 %</option>
+                        <option value="0.05">0.05 %</option>
+                        <option value="0.1">0.1 %</option>
+                        <option value="0.5">0.5 %</option>
+                        <option value="1">1 %</option>
+                    </select>
                     <button onclick="clearPriceChart()" class="btn-clear">
                         <i class="fas fa-eraser"></i> Limpiar
                     </button>
@@ -340,8 +352,139 @@
     })();
     let digitsDataPoints = [];
     let priceDataPoints = [];
+    let maxLineDataPoints = [];   // puntos de la línea punteada azul (máximos)
+    let minLineDataPoints = [];   // puntos de la línea punteada roja (mínimos)
     let currentPosition = 1;
     let priceChartPosition = 1;
+
+    // ====================== ZIGZAG (lógica del indicador de IQ Option) ======================
+    // Pivote por reversión porcentual: sigue el extremo (máximo si la dirección es
+    // arriba, mínimo si es abajo) y, cuando el precio se aleja del extremo más que
+    // reference * pct / 100, confirma el pivote y cambia de dirección.
+    const ZZ_UP_COLOR = "#FF7700";    // tramos ascendentes
+    const ZZ_DOWN_COLOR = "#57A1D0";  // tramos descendentes
+    let zigzagEnabled = true;
+    let zigzagPct = 0.01;             // porcentaje de reversión (%)
+    let zigzagDataPoints = [];
+    let priceTickSeq = 0;             // contador monotónico de ticks (identifica pivotes aunque la ventana se desplace)
+
+    function computeZigZag(points, pct) {
+        if (!points.length) return [];
+        let dirUp = true;
+        let reference = points[0].y;
+        let hVal = points[0].y, hIdx = 0;
+        let lVal = points[0].y, lIdx = 0;
+        const pivots = [];
+
+        for (let i = 0; i < points.length; i++) {
+            const y = points[i].y;
+            const reverseRange = reference * pct / 100;
+
+            if (dirUp) {
+                if (y >= hVal) { hVal = y; hIdx = i; }
+                if (y < hVal - reverseRange) {
+                    pivots.push({ i: hIdx, y: hVal, type: 'high' });
+                    dirUp = false;
+                    reference = hVal;
+                    lVal = y; lIdx = i;
+                }
+            } else {
+                if (y <= lVal) { lVal = y; lIdx = i; }
+                if (y > lVal + reverseRange) {
+                    pivots.push({ i: lIdx, y: lVal, type: 'low' });
+                    dirUp = true;
+                    reference = lVal;
+                    hVal = y; hIdx = i;
+                }
+            }
+        }
+
+        // Tramo provisional: del último pivote al extremo que se está formando
+        const pending = dirUp
+            ? { i: hIdx, y: hVal, type: 'high', pending: true }
+            : { i: lIdx, y: lVal, type: 'low', pending: true };
+        if (!pivots.length || pivots[pivots.length - 1].i !== pending.i) pivots.push(pending);
+
+        // Punto de arranque (primer precio de la ventana)
+        const nodes = [];
+        if (pivots[0].i !== 0) nodes.push({ i: 0, y: points[0].y, type: 'start' });
+        pivots.forEach(p => nodes.push(p));
+
+        return nodes.map((n, k) => {
+            const prev = k > 0 ? nodes[k - 1] : null;
+            const goingUp = prev ? n.y >= prev.y : true;
+            const color = goingUp ? ZZ_UP_COLOR : ZZ_DOWN_COLOR;
+            const pt = {
+                x: points[n.i].x,
+                y: n.y,
+                tick: points[n.i].tick,
+                lineColor: color,          // colorea el tramo que llega a este punto
+                lineThickness: 2
+            };
+            if (n.type !== 'start' && !n.pending) {
+                pt.markerType = "circle";
+                pt.markerSize = 7;
+                pt.markerColor = n.type === 'high' ? ZZ_UP_COLOR : ZZ_DOWN_COLOR;
+                pt.markerBorderColor = "#fff";
+                pt.markerBorderThickness = 1;
+            } else {
+                pt.markerType = "none";
+            }
+            return pt;
+        });
+    }
+
+    // Sincroniza todas las series del gráfico de precios (precio, ZigZag, líneas max/min)
+    function syncPriceSeries() {
+        if (!priceChart) return;
+        rebuildLevelLines();
+        const zz = zigzagEnabled ? computeZigZag(priceDataPoints, zigzagPct) : [];
+        zigzagDataPoints.length = 0;
+        zz.forEach(p => zigzagDataPoints.push(p));
+
+        priceChart.options.data[0].dataPoints = priceDataPoints;
+        // Con ZigZag activo se ocultan las líneas punteadas max/min para no saturar
+        priceChart.options.data[1].dataPoints = zigzagEnabled ? [] : maxLineDataPoints;
+        priceChart.options.data[2].dataPoints = zigzagEnabled ? [] : minLineDataPoints;
+        priceChart.options.data[3].dataPoints = zigzagDataPoints;
+        priceChart.render();
+        publishZigZagState();
+    }
+
+    // ---- Señal del ZigZag para el bot ----
+    // window.zigzagState se actualiza en cada tick:
+    //   { enabled, pct, direction: 'UP'|'DOWN'|null, pivots:[{x,y,type}], pending:{x,y}|null }
+    // Cuando se confirma un pivote nuevo se dispara el evento 'zigzag-pivot':
+    //   window.addEventListener('zigzag-pivot', e => console.log(e.detail));
+    //   e.detail = { type:'high'|'low', price, direction:'UP'|'DOWN' (dirección que empieza) }
+    let lastPivotTick = null;
+    function publishZigZagState() {
+        const pts = zigzagDataPoints;
+        const pivots = pts.filter(p => p.markerType === 'circle')
+            .map(p => ({ x: p.x, y: p.y, tick: p.tick, type: p.markerColor === ZZ_UP_COLOR ? 'high' : 'low' }));
+        const last = pts.length ? pts[pts.length - 1] : null;
+        const pending = last && last.markerType !== 'circle' ? { x: last.x, y: last.y } : null;
+        // Si el extremo provisional es un máximo, la dirección vigente es UP
+        const direction = last ? (last.lineColor === ZZ_UP_COLOR ? 'UP' : 'DOWN') : null;
+
+        window.zigzagState = { enabled: zigzagEnabled, pct: zigzagPct, direction, pivots, pending };
+
+        if (!pivots.length) { lastPivotTick = null; return; }
+        const lp = pivots[pivots.length - 1];
+        // Sólo se emite cuando aparece un pivote MÁS RECIENTE que el último emitido;
+        // los pivotes que salen de la ventana o reajustes del inicio no disparan nada.
+        if (lastPivotTick !== null && lp.tick > lastPivotTick) {
+            window.dispatchEvent(new CustomEvent('zigzag-pivot', {
+                detail: {
+                    type: lp.type,
+                    price: lp.y,
+                    tick: lp.tick,
+                    direction: lp.type === 'high' ? 'DOWN' : 'UP'
+                }
+            }));
+        }
+        if (lastPivotTick === null || lp.tick > lastPivotTick) lastPivotTick = lp.tick;
+    }
     
     /* ==================================================================
        CAPA API DERIV — NUEVA VERSIÓN (v4)
@@ -606,6 +749,24 @@
             });
         }
 
+        // ----- Controles del ZigZag -----
+        const zzToggle = document.getElementById('zigzag-toggle');
+        if (zzToggle) {
+            zigzagEnabled = zzToggle.checked;
+            zzToggle.addEventListener('change', () => {
+                zigzagEnabled = zzToggle.checked;
+                syncPriceSeries();
+            });
+        }
+        const zzPct = document.getElementById('zigzag-pct');
+        if (zzPct) {
+            zigzagPct = parseFloat(zzPct.value);
+            zzPct.addEventListener('change', () => {
+                zigzagPct = parseFloat(zzPct.value);
+                syncPriceSeries();
+            });
+        }
+
         const barrierSel = document.getElementById('digit-barrier');
         if (barrierSel) barrierSel.addEventListener('change', renderDigitStats);
 
@@ -642,8 +803,11 @@
         // Solicitar permiso para notificaciones push
         requestNotificationPermission();
         
-        // Conectar a Deriv API automáticamente
-        setTimeout(conectarDerivAPI, 2000);
+        // Conectar a Deriv API (trading) sólo si ya hay un token guardado,
+        // para no lanzar un prompt() al cargar la página.
+        try {
+            if (localStorage.getItem('deriv_api_token')) setTimeout(conectarDerivAPI, 2000);
+        } catch (e) { /* localStorage no disponible */ }
     };
     
     // ====================== INICIALIZACIÓN DEL CANVAS DE MONITOREO ======================
@@ -1195,6 +1359,7 @@
     }
     
     function updateSoundSwitch() {
+        if (!soundIndicator || !soundAlertSwitch) return;
         if (soundAlertsEnabled) {
             soundIndicator.classList.add('active');
             soundAlertSwitch.classList.add('active');
@@ -1205,6 +1370,7 @@
     }
     
     function updatePushSwitch() {
+        if (!pushIndicator || !pushAlertSwitch) return;
         if (pushAlertsEnabled && Notification.permission === 'granted') {
             pushIndicator.classList.add('active');
             pushAlertSwitch.classList.add('active');
@@ -1487,6 +1653,33 @@
                 markerSize: 6,
                 markerBorderThickness: 0,
                 dataPoints: priceDataPoints
+            },
+            {   // Línea punteada AZUL que une los MÁXIMOS
+                type: "line",
+                lineColor: "#29abe2",
+                lineThickness: 2,
+                lineDashType: "dash",
+                markerType: "none",
+                highlightEnabled: false,
+                dataPoints: maxLineDataPoints
+            },
+            {   // Línea punteada ROJA que une los MÍNIMOS
+                type: "line",
+                lineColor: "#c03",
+                lineThickness: 2,
+                lineDashType: "dash",
+                markerType: "none",
+                highlightEnabled: false,
+                dataPoints: minLineDataPoints
+            },
+            {   // ZigZag: naranja = tramo ascendente, azul = tramo descendente
+                type: "line",
+                lineColor: ZZ_UP_COLOR,
+                lineThickness: 2,
+                markerType: "none",
+                highlightEnabled: false,
+                toolTipContent: null,
+                dataPoints: zigzagDataPoints
             }]
         });
         
@@ -1552,6 +1745,18 @@
         digitsChart.render();
     }
     
+    // Reconstruye las líneas punteadas a partir de los puntos visibles
+    // que fueron marcados como 'max' o 'min' por updatePriceLevel()
+    function rebuildLevelLines() {
+        // Mutar los arrays (misma referencia que usa el gráfico)
+        maxLineDataPoints.length = 0;
+        minLineDataPoints.length = 0;
+        priceDataPoints.forEach(pt => {
+            if (pt.level === 'max') maxLineDataPoints.push({ x: pt.x, y: pt.y });
+            else if (pt.level === 'min') minLineDataPoints.push({ x: pt.x, y: pt.y });
+        });
+    }
+
     function updatePriceChart(price, digit, wentUp) {
         if (!priceChart) return;
         
@@ -1569,10 +1774,12 @@
             indexLabelFontSize: labelFontSize(),
             indexLabelFontColor: wentUp ? "#29abe2" : "#c03",
             markerBorderColor: "#ccc",
-            markerSize: 3,
+            markerSize: currentPriceLevel === 'mid' ? 3 : 6,
             markerType: "circle",
-            markerColor: "black",
-            markerBorderColor: "#ccc"
+            markerColor: currentPriceLevel === 'max' ? "#29abe2"
+                       : currentPriceLevel === 'min' ? "#c03" : "black",
+            level: currentPriceLevel,  // 'max' | 'min' | 'mid'
+            tick: ++priceTickSeq
         });
         
         priceChartPosition++;
@@ -1596,8 +1803,7 @@
             priceChart.options.axisY.maximum = maxPrice + (range * 0.1);
         }
         
-        priceChart.options.data[0].dataPoints = priceDataPoints;
-        priceChart.render();
+        syncPriceSeries();
     }
     
     function labelFontSize() {
@@ -1630,10 +1836,7 @@
             digitsChart.options.data[0].dataPoints = digitsDataPoints;
             digitsChart.render();
         }
-        if (priceChart) {
-            priceChart.options.data[0].dataPoints = priceDataPoints;
-            priceChart.render();
-        }
+        if (priceChart) syncPriceSeries();
         renderDigitsContainer();
 
         console.log(`📏 Ventana configurada: ${n} puntos`);
@@ -1669,9 +1872,11 @@
         
         if (priceChart) {
             priceChart.options.data[0].dataPoints = [];
+            maxLineDataPoints.length = 0;
+            minLineDataPoints.length = 0;
             delete priceChart.options.axisY.minimum;
             delete priceChart.options.axisY.maximum;
-            priceChart.render();
+            syncPriceSeries();
         }
         
         // Reiniciar contadores de nivel
@@ -1867,7 +2072,7 @@
         }
         
         setTimeout(() => {
-            tradeMonitorEl.classList.add('hidden');
+            if (tradeMonitorEl) tradeMonitorEl.classList.add('hidden');
         }, 3000);
         
         activeTrade = null;
@@ -1899,8 +2104,10 @@
         console.log(`🎯 Ejecutando operación ${type} por $${tradingStake.toFixed(2)}`);
         
         isTrading = true;
-        tradeStatusEl.textContent = "OPERANDO...";
-        tradeStatusEl.style.color = "#f39c12";
+        if (tradeStatusEl) {
+            tradeStatusEl.textContent = "OPERANDO...";
+            tradeStatusEl.style.color = "#f39c12";
+        }
         
         const assetValue = document.getElementById("asset-selector").value;
         const xd = obtenerDecimalesPorInstrumento(assetValue);
@@ -1915,8 +2122,8 @@
     function resetTradingState() {
         isTrading = false;
         currentContract = null;
-        tradeStatusEl.textContent = "LISTO";
-        tradeStatusEl.style.color = "#27ae60";
+        if (tradeStatusEl) tradeStatusEl.textContent = "LISTO";
+        if (tradeStatusEl) tradeStatusEl.style.color = "#27ae60";
         stopTradeMonitor();
         
         console.log("🔄 Estado de trading reiniciado");
@@ -1953,19 +2160,19 @@
         
         if (ganancia > 0) {
             wins++;
-            lastTradeEl.innerHTML = `<span style="color:#27ae60">CALL +$${ganancia.toFixed(2)}</span>`;
+            if (lastTradeEl) lastTradeEl.innerHTML =`<span style="color:#27ae60">CALL +$${ganancia.toFixed(2)}</span>`;
         } else {
             losses++;
-            lastTradeEl.innerHTML = `<span style="color:#e74c3c">PUT -$${Math.abs(ganancia).toFixed(2)}</span>`;
+            if (lastTradeEl) lastTradeEl.innerHTML =`<span style="color:#e74c3c">PUT -$${Math.abs(ganancia).toFixed(2)}</span>`;
         }
         
         const winRate = totalTrades > 0 ? Math.round((wins / totalTrades) * 100) : 0;
         
         updateTradingDisplay();
-        winRateEl.textContent = `${winRate}%`;
+        if (winRateEl) winRateEl.textContent = `${winRate}%`;
         
-        tradeStatusEl.textContent = "LISTO";
-        tradeStatusEl.style.color = "#27ae60";
+        if (tradeStatusEl) tradeStatusEl.textContent = "LISTO";
+        if (tradeStatusEl) tradeStatusEl.style.color = "#27ae60";
         
         currentContract = null; // IMPORTANTE: Limpiar el contrato actual
         
@@ -2000,10 +2207,8 @@
         if (totalTradesEl) totalTradesEl.textContent = totalTrades;
         
         const stakeInput = document.getElementById('trading-stake');
-        if (stakeInput && parseFloat(stakeInput.value) > balance) {
-            stakeInput.style.borderColor = '#e74c3c';
-        } else {
-            stakeInput.style.borderColor = '';
+        if (stakeInput) {
+            stakeInput.style.borderColor = parseFloat(stakeInput.value) > balance ? '#e74c3c' : '';
         }
     }
     
@@ -2695,10 +2900,13 @@ function renderDigitsContainer() {
     }
     
     // Event listener para actualizar stake cuando cambia el input
-    document.getElementById('trading-stake').addEventListener('input', function() {
-        tradingStake = parseFloat(this.value) || 1;
-        updateStakeDisplay();
-    });
+    const tradingStakeInput = document.getElementById('trading-stake');
+    if (tradingStakeInput) {
+        tradingStakeInput.addEventListener('input', function() {
+            tradingStake = parseFloat(this.value) || 1;
+            updateStakeDisplay();
+        });
+    }
     </script>
 </body>
 </html>
