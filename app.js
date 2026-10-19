@@ -1,5 +1,3 @@
-'use strict';
-
 // ====================== VARIABLES GLOBALES ======================
 let ws            = null;
 let derivWs       = null;
