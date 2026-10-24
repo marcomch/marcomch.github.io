@@ -1,239 +1,126 @@
 <!DOCTYPE html>
-<html lang="es"><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Pulso de Mercado</title>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulador Tabla XZ</title>
 <style>
-:root{--bg:#0B1220;--sf:#111A2E;--sf2:#16223B;--br:#24345A;--tx:#E8EEFB;--tx2:#8FA0C4;--ac:#38BDF8;--ok:#34D399;--warn:#FBBF24;--err:#F87171;--sh:0 8px 30px rgba(0,0,0,.35)}
-[data-theme=light]{--bg:#F1F5FB;--sf:#fff;--sf2:#EAF0FA;--br:#D3DDEE;--tx:#0F1B33;--tx2:#5B6B8C;--ac:#0284C7;--ok:#059669;--warn:#B45309;--err:#DC2626;--sh:0 8px 24px rgba(30,60,120,.12)}
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:Inter,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;transition:background .3s,color .3s;padding-bottom:env(safe-area-inset-bottom)}
-.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--br);padding-top:env(safe-area-inset-top)}
-.tw{max-width:960px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px}
-h1{font-size:1rem;font-weight:700;display:flex;align-items:center;gap:8px}
-.live{width:10px;height:10px;border-radius:50%;background:var(--err)}
-.live.on{background:var(--ok);animation:pg 2.2s infinite}.live.busy{background:var(--warn);animation:pg .8s infinite}
-@keyframes pg{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 60%,transparent)}100%{box-shadow:0 0 0 10px transparent}}
-.ctl{display:flex;align-items:center;gap:8px}
-.chip{font-size:.74rem;color:var(--tx2);font-variant-numeric:tabular-nums;white-space:nowrap}
-.ib{width:36px;height:36px;border-radius:10px;border:1px solid var(--br);background:var(--sf);color:var(--tx);cursor:pointer;font-size:1rem;transition:.2s}
-.ib:hover{border-color:var(--ac);transform:translateY(-1px)}.ib:active{transform:scale(.93)}
-body.scanning #go{animation:rot 1s linear infinite}@keyframes rot{to{transform:rotate(360deg)}}
-.pbar{height:3px;background:var(--br);overflow:hidden}.pbar i{display:block;height:100%;width:100%;background:var(--ac);transform-origin:left;transform:scaleX(0);transition:transform 1s linear}
-body.scanning .pbar i{transform:none;transition:none;animation:ind 1.1s ease-in-out infinite}@keyframes ind{0%{transform:translateX(-100%) scaleX(.4)}100%{transform:translateX(250%) scaleX(.4)}}
-main{max-width:960px;margin:0 auto;padding:16px}
-.hero{display:grid;grid-template-columns:190px 1fr;gap:20px;align-items:center;background:var(--sf);border:1px solid var(--br);border-radius:20px;padding:20px;box-shadow:var(--sh);margin-bottom:16px;position:relative;overflow:hidden}
-.hero.go{border-color:var(--ok)}.hero.flash::after{content:'';position:absolute;inset:0;background:radial-gradient(circle at 20% 50%,color-mix(in srgb,var(--ac) 45%,transparent),transparent 60%);animation:fl 1.2s ease-out forwards;pointer-events:none}
-@keyframes fl{from{opacity:1}to{opacity:0}}
-.hl{font-size:.68rem;letter-spacing:2px;text-transform:uppercase;color:var(--tx2)}
-.bn{font-size:clamp(2rem,8vw,3.2rem);font-weight:800;line-height:1.05;margin:4px 0}.bn.ok{color:var(--ok)}.bn.no{color:var(--warn);font-size:1.4rem}
-.bn span{display:inline-block;animation:pop .5s cubic-bezier(.3,1.6,.4,1)}@keyframes pop{from{transform:scale(.5);opacity:0}}
-.sub{font-size:.78rem;color:var(--tx2);line-height:1.6}
-.gauge{width:100%;display:block}.gauge .t{fill:none;stroke:var(--sf2);stroke-width:10;stroke-linecap:round}
-.gauge .v{fill:none;stroke:var(--ac);stroke-width:10;stroke-linecap:round;stroke-dasharray:157.08;stroke-dashoffset:157.08;transition:stroke-dashoffset 1.2s cubic-bezier(.2,.8,.2,1)}
-.gauge .be{stroke:var(--warn);stroke-width:2.5;stroke-dasharray:3 2}.gauge .lb{stroke:var(--tx);stroke-width:2.5}
-.gauge text{fill:var(--tx);font-weight:800;font-size:19px;text-anchor:middle;font-variant-numeric:tabular-nums}.gauge .s{fill:var(--tx2);font-size:8px;font-weight:600}
-.go .gauge .v,.row.go .gauge .v{stroke:var(--ok)}.row.avoid .gauge .v{stroke:var(--err)}.row.watch .gauge .v{stroke:var(--warn)}
-.list{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
-.row{background:var(--sf);border:1px solid var(--br);border-radius:16px;box-shadow:var(--sh);opacity:0;animation:in .5s ease-out forwards;animation-delay:calc(var(--i)*80ms);transition:border-color .2s}
-@keyframes in{from{opacity:0;transform:translateX(-24px)}to{opacity:1;transform:none}}
-.row:hover,.row[open]{border-color:var(--ac)}.row.go{border-color:color-mix(in srgb,var(--ok) 70%,transparent)}
-summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:34px 1.1fr 110px 1fr 22px;align-items:center;gap:12px;padding:12px 14px}
-summary::-webkit-details-marker{display:none}
-.rk{width:30px;height:30px;border-radius:50%;background:var(--sf2);display:grid;place-items:center;font-weight:700;font-size:.82rem}.row.go .rk{background:var(--ok);color:#fff}
-.nm{font-weight:700;font-size:1.05rem}.pill{display:inline-block;margin-top:3px;padding:2px 9px;border-radius:12px;font-size:.66rem;font-weight:700;letter-spacing:.4px;background:var(--sf2);color:var(--tx2)}
-.pill.go{background:color-mix(in srgb,var(--ok) 20%,transparent);color:var(--ok);animation:pg 2s infinite}.pill.watch{background:color-mix(in srgb,var(--warn) 20%,transparent);color:var(--warn)}.pill.avoid{background:color-mix(in srgb,var(--err) 20%,transparent);color:var(--err)}
-.kv{text-align:right;font-variant-numeric:tabular-nums}.kv b{font-size:1.15rem}.kv small{display:block;font-size:.72rem}
-.pos{color:var(--ok)}.neg{color:var(--err)}.m{color:var(--tx2);font-size:.76rem}
-.chev{transition:transform .25s;color:var(--tx2)}.row[open] .chev{transform:rotate(180deg)}
-.det{padding:0 14px 14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;animation:in .3s ease-out}
-.det div{background:var(--sf2);border-radius:10px;padding:8px 10px}.det dt{font-size:.6rem;text-transform:uppercase;letter-spacing:1px;color:var(--tx2)}.det dd{font-weight:700;font-variant-numeric:tabular-nums}
-.sqs{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:3px}.sq{width:12px;height:12px;border-radius:3px;background:var(--err);animation:pop .3s both;animation-delay:calc(var(--k)*30ms)}.sq.w{background:var(--ok)}
-.sk{height:74px;border-radius:16px;background:linear-gradient(100deg,var(--sf) 30%,var(--sf2) 50%,var(--sf) 70%);background-size:200% 100%;animation:sh 1.3s linear infinite}@keyframes sh{to{background-position:-200% 0}}
-.card{background:var(--sf);border:1px solid var(--br);border-radius:14px;padding:14px;margin-bottom:14px}
-.card>summary{display:block;padding:0;font-size:.86rem;color:var(--tx2)}
-.cfg{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:14px;font-size:.78rem;color:var(--tx2)}
-.cfg label{display:flex;flex-direction:column;gap:5px}.cfg select,.cfg input[type=number]{padding:9px 10px;border:1px solid var(--br);background:var(--sf2);color:var(--tx);border-radius:8px;font:inherit;font-size:.9rem;width:100%}
-.cfg .chk{flex-direction:row;align-items:center;gap:8px;grid-column:1/-1}.cfg .chk input{width:18px;height:18px;accent-color:var(--ac)}
-.btn{padding:9px 14px;border:1px solid var(--br);background:var(--sf2);color:var(--tx);border-radius:10px;font:inherit;font-size:.82rem;cursor:pointer}.btn:hover{border-color:var(--ac)}
-h2{font-size:.68rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--tx2);margin-bottom:10px}
-.lg div{padding:7px 10px;background:var(--sf2);border-radius:8px;border-left:3px solid var(--ac);margin-bottom:6px;font-size:.8rem;animation:in .4s}
-.foot{text-align:center;line-height:1.6;padding-bottom:18px}
-@media(max-width:640px){.hero{grid-template-columns:1fr;text-align:center;padding:16px}.hero .gauge{max-width:190px;margin:0 auto}
- summary{grid-template-columns:30px 1fr 84px 20px;gap:8px}.kv{display:none}summary .gauge{max-width:84px}.tw{padding:8px 12px}.chip.hide{display:none}}
-@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}.row{opacity:1}}
-</style></head>
+/* Layout: una columna — tabla del "8" arriba, recorrido y tramos debajo (estética del analizador) */
+:root{--bg:#1a1a2e;--bg2:#16213e;--panel:rgba(255,255,255,.05);--line:#34495e;--fg:#ffffff;--muted:#95a5a6;
+--blue:#3498db;--red:#e74c3c;--acc:#f1c40f;--ok:#27ae60;--warn:#f39c12;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:linear-gradient(135deg,var(--bg),var(--bg2));color:var(--fg);font-family:'Segoe UI',Tahoma,sans-serif;min-height:100%}
+.wrap{max-width:560px;margin:0 auto;padding-block:20px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:16px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
+h1{font-size:1.3rem;margin:0;letter-spacing:.5px}
+.sub{color:var(--muted);font-size:.9rem;margin:0}
+.ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{background:transparent;color:var(--fg);border:0;padding:8px 14px;font-weight:600;cursor:pointer;font-size:.9rem}
+.seg button[aria-pressed="true"]{background:var(--blue)}
+.btn{background:rgba(52,152,219,.2);color:var(--blue);border:1px solid var(--blue);border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer;font-size:.9rem}
+.btn.red{background:rgba(231,76,60,.2);color:var(--red);border-color:var(--red)}
+.btn:disabled{opacity:.35;cursor:default}
+button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.status{margin-left:auto;font-family:'Courier New',monospace;font-weight:bold;color:var(--acc)}
+svg{width:100%;max-width:340px;display:block;margin:0 auto}
+svg text{font-family:'Courier New',monospace}
+.cell{cursor:pointer}
+.cell:hover circle{stroke-width:3}
+.done .cell{cursor:default}
+.seq{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-height:34px}
+.chip{font-family:'Courier New',monospace;font-weight:bold;font-size:1.05rem;padding:3px 8px;border-radius:6px}
+.chip.A{background:rgba(52,152,219,.2);color:var(--blue);border:1px solid var(--blue)}
+.chip.R{background:rgba(231,76,60,.2);color:var(--red);border:1px solid var(--red)}
+.chip.last{box-shadow:0 0 0 2px var(--acc)}
+.empty{color:var(--muted);font-size:.9rem}
+.arr{color:var(--muted)}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+th{text-align:left;font-size:.7rem;letter-spacing:1px;color:var(--muted);padding:6px;border-bottom:1px solid var(--line)}
+td{padding:7px 6px;border-bottom:1px solid rgba(255,255,255,.06);white-space:nowrap;font-variant-numeric:tabular-nums}
+.up{color:var(--ok);font-weight:600}.down{color:var(--red);font-weight:600}.flat{color:var(--muted);font-weight:600}
+.mis{font-size:.65rem;font-weight:bold;color:var(--warn);background:rgba(243,156,18,.15);padding:2px 6px;border-radius:4px}
+small{color:var(--muted)}
+.sum{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.sum div{background:rgba(0,0,0,.2);border:1px solid var(--line);border-radius:8px;padding:8px;text-align:center}
+.sum b{display:block;font-size:1.3rem;font-family:'Courier New',monospace}
+.sum span{font-size:.7rem;color:var(--muted);letter-spacing:.5px}
+.note{font-size:.8rem;color:var(--muted);margin:0}
+</style>
+</head>
 <body>
-<header class="top"><div class="tw"><h1><i class="live" id="dot"></i>Pulso de mercado</h1>
-<div class="ctl"><span class="chip hide" id="st">Iniciando…</span><span class="chip" id="cd">–</span>
-<button class="ib" id="go" title="Escanear ahora">↻</button><button class="ib" id="th" title="Tema claro/oscuro">◐</button></div></div><div class="pbar"><i id="pb"></i></div></header>
-<main>
-<section class="hero" id="hero"><svg class="gauge" id="hg" viewBox="0 0 120 76"></svg><div><div class="hl">Mejor índice ahora</div><div class="bn" id="best">—</div><div class="sub" id="meta">Esperando primer escaneo…</div></div></section>
-<section class="list" id="grid"><div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div></section>
-<details class="card"><summary>⚙ Ajustes y alertas</summary><div class="cfg">
- <label>Ventana<select id="win"><option value="1800">30 h</option><option value="7200" selected>2 h</option><option value="9000">2.5 h</option></select></label>
- <label>Escanear cada<select id="ev"><option value="30">30 s</option><option value="60" selected>60 s</option><option value="120">2 min</option><option value="300">5 min</option></select></label>
- <label>Mín. operaciones<input id="mn" type="number" min="3" value="8"></label>
- <label>Payout por defecto %<input id="pay" type="number" min="1" max="200" value="87"></label>
- <label class="chk"><input id="snd" type="checkbox"> Alertar cuando cambie el mejor índice (sonido, vibración y notificación)</label>
- <button class="btn" id="test" type="button">🔔 Probar alerta</button></div></details>
-<section class="card"><h2>Cambios del mejor índice</h2><div id="log" class="lg"><span class="m">Sin cambios todavía.</span></div></section>
-<p class="foot m">Toca un índice para ver el detalle. Arco = win rate · marca blanca = mínimo al 95% · línea naranja = equilibrio. OPERAR exige que la marca blanca supere la naranja y no haya 2 pérdidas seguidas al final. * = payout fijo, no medido. Análisis retrospectivo: no garantiza resultados futuros.</p>
-</main>
+
+<div class="wrap">
+  <div class="panel">
+    <h1>SIMULADOR TABLA XZ</h1>
+    <p class="sub">Elige cuántos dígitos tendrá el recorrido y toca las casillas en orden. Azul = el tick subió, rojo = el tick bajó.</p>
+    <div class="ctrl">
+      <div class="seg" role="group" aria-label="Cantidad de dígitos" id="seg">
+        <button data-n="4">4</button><button data-n="5" aria-pressed="true">5</button><button data-n="6">6</button>
+      </div>
+      <button class="btn" id="undo">Deshacer</button>
+      <button class="btn red" id="reset">Reiniciar</button>
+      <span class="status" id="status"></span>
+    </div>
+    <svg id="tbl" viewBox="0 0 300 500" role="img" aria-label="Tabla XZ"></svg>
+  </div>
+
+  <div class="panel">
+    <span class="empty" style="letter-spacing:1px;font-size:.75rem">RECORRIDO</span>
+    <div class="seq" id="seq"></div>
+    <div class="scroll"><table id="tramos"></table></div>
+    <div class="sum" id="sum"></div>
+    <p class="note">El precio de cada tramo sale del color del dígito de llegada: si llega a azul el precio subió, si llega a rojo bajó.</p>
+  </div>
+</div>
+
 <script>
-/* ====== CONFIG ====== */
-const WS_URL='wss://api.derivws.com/trading/v1/options/ws/public';   // público, sin token ni app_id
-const ASSETS=[['V10','R_10'],['V25','R_25'],['V50','R_50'],['V75','R_75'],['V100','R_100']];
-const DEC={R_10:3,R_25:3,R_50:4,R_75:4,R_100:2};
-const PL=4, PWIN=20, STAKE=1;          // estrategia idéntica a M51: patrón 4, MID_ONLY, PRICE_CONFIRM
-const $=id=>document.getElementById(id);
-const cfg={get win(){return +$('win').value},get every(){return +$('ev').value},get minN(){return +$('mn').value||8},get pay(){return (+$('pay').value||87)/100}};
-/* persistencia de ajustes */
-try{const s=JSON.parse(localStorage.getItem('pm_cfg')||'{}');for(const k in s)if($(k)&&k!=='snd')$(k).value=s[k];$('snd').checked=!!s.snd}catch(e){}
-const save=()=>{try{localStorage.setItem('pm_cfg',JSON.stringify({win:$('win').value,ev:$('ev').value,mn:$('mn').value,pay:$('pay').value,snd:$('snd').checked}))}catch(e){}};
-['win','ev','mn','pay','snd'].forEach(i=>$(i).addEventListener('change',save));
-
-/* ====== MOTOR ====== */
-const dec=a=>DEC[a]??2, rnd=(x,a)=>Number(x.toFixed(dec(a)));
-const digit=(p,a)=>+p.toFixed(dec(a)).slice(-1);
-const trend=(c,p,a)=>p==null?true:rnd(c,a)>=rnd(p,a);
-function procDigit(d,pd,up){if(d!==0)return up?d:-d;return(pd!=null&&pd>5)?(up?10:-10):0}
-function level(price,win,a){const n=rnd(price,a);win.push(n);if(win.length>PWIN)win.shift();
- if(win.length<3)return'mid';const mx=Math.max(...win),mn=Math.min(...win);
- return(n===mx&&n!==mn)?'max':(n===mn&&n!==mx)?'min':'mid'}
-function priceDir(p){if(p.length<2)return null;
- if(p.every((v,i)=>i===0||v>p[i-1]))return'alcista';if(p.every((v,i)=>i===0||v<p[i-1]))return'bajista';return null}
-function ana(v){if(v.length<2)return v.length===1?'one':null;if(new Set(v).size!==v.length)return null;
- if(v.every((x,i)=>i===0||x>v[i-1]))return'up';if(v.every((x,i)=>i===0||x<v[i-1]))return'down';return null}
-const mkt=(d,ib)=>(!d||d==='one')?null:((d==='up')===ib?'alcista':'bajista');
-function evalBuf(buf){
- if(buf.length<PL||!buf.every(d=>d.level==='mid'))return null;
- const bl=buf.filter(d=>d.blue),rd=buf.filter(d=>!d.blue);
- if(bl.length<2||rd.length<2)return null;
- const bm=mkt(ana(bl.map(d=>d.v)),true),rm=mkt(ana(rd.map(d=>d.v)),false);
- if(!bm||!rm||bm!==rm)return null;
- const bp=priceDir(bl.map(d=>d.price)),rp=priceDir(rd.map(d=>d.price));
- if(!bp||!rp||bp!==rp||bp!==bm)return null;
- return bm==='alcista'?'CALL':'PUT'}
-function simulate(ticks,a,pay){
- let buf=[],win=[],sigs=[],pd=null,i=1;
- while(i<ticks.length){
-  const pv=ticks[i-1][1],cu=ticks[i][1],up=trend(cu,pv,a),d=digit(cu,a);
-  const v=Math.abs(procDigit(d,pd,up));pd=d;
-  buf.push({v,blue:up,level:level(cu,win,a),price:cu});if(buf.length>PL)buf.shift();
-  const sig=buf.length===PL?evalBuf(buf):null;
-  if(!sig||i+6>=ticks.length){i++;continue}
-  const e=rnd(ticks[i+1][1],a),x=rnd(ticks[i+6][1],a),tie=x===e,won=tie?false:(sig==='CALL'?x>e:x<e);
-  sigs.push({t:ticks[i][0],tie,won,pnl:tie?0:(won?STAKE*pay:-STAKE)});
-  for(let j=i+1;j<Math.min(i+6,ticks.length);j++){const dj=digit(ticks[j][1],a);procDigit(dj,pd,trend(ticks[j][1],ticks[j-1][1],a));pd=dj;level(ticks[j][1],win,a)}
-  buf=[];i+=6}
- return sigs}
-function wilson(w,n,z=1.645){if(!n)return 0;const p=w/n,den=1+z*z/n,c=p+z*z/(2*n),m=z*Math.sqrt((p*(1-p)+z*z/(4*n))/n);return Math.max(0,(c-m)/den)*100}
-
-/* ====== RED: una sola conexión WS para los 5 índices ====== */
-function openWS(){return new Promise((res,rej)=>{const ws=new WebSocket(WS_URL);const t=setTimeout(()=>{try{ws.close()}catch(e){};rej(new Error('timeout de conexión'))},15000);
- ws.onopen=()=>{clearTimeout(t);res(ws)};ws.onerror=()=>{clearTimeout(t);rej(new Error('no se pudo conectar al WebSocket'))}})}
-function request(ws,payload,ms=25000){return new Promise((res,rej)=>{
- const id=Math.floor(Math.random()*1e9);const to=setTimeout(()=>{ws.removeEventListener('message',h);rej(new Error('sin respuesta'))},ms);
- function h(ev){let r;try{r=JSON.parse(ev.data)}catch(e){return}
-  if(r.req_id!==id&&(r.echo_req||{}).req_id!==id)return;
-  clearTimeout(to);ws.removeEventListener('message',h);res(r)}
- ws.addEventListener('message',h);ws.send(JSON.stringify({...payload,req_id:id}))})}
-const payCache={};
-async function getPayout(ws,sym){
- const c=payCache[sym];if(c&&c.src==='medido'&&Date.now()-c.ts<600000)return c;
- let out={r:cfg.pay,src:'fijo',ts:Date.now()};
- try{const r=await request(ws,{proposal:1,amount:1,basis:'stake',contract_type:'CALL',currency:'USD',duration:5,duration_unit:'t',underlying_symbol:sym},8000);
-  const p=r.proposal;if(p&&!r.error){const cost=+p.ask_price,py=+p.payout;if(cost>0&&py>cost){const q=(py-cost)/cost;if(q>=.01&&q<=4)out={r:q,src:'medido',ts:Date.now()}}}}catch(e){}
- payCache[sym]=out;return out}
-async function scanOne(ws,name,sym){
- const row={asset:name,symbol:sym,total:0,decided:0,wr:0,lb:0,pnl:0,max_loss:0,seq:[],last:null,tail_loss:false,error:null,span:0,trunc:false,be:0,src:'fijo',pay:0};
- try{
-  const p=await getPayout(ws,sym);row.pay=p.r;row.src=p.src;row.be=+(100/(1+p.r)).toFixed(1);
-  const end=Math.floor(Date.now()/1000);
-  const r=await request(ws,{ticks_history:sym,start:end-cfg.win,end,style:'ticks',count:5000,adjust_start_time:1});
-  if(r.error)throw new Error(r.error.message||'error API');
-  const h=r.history;if(!h||!h.prices||!h.prices.length)throw new Error('sin datos históricos');
-  const ticks=h.prices.map((pr,i)=>[+h.times[i],+pr]);
-  row.span=Math.floor((ticks[ticks.length-1][0]-ticks[0][0])/60);row.trunc=ticks.length>=5000&&row.span*60<cfg.win*.9;
-  const sigs=simulate(ticks,sym,p.r),ties=sigs.filter(s=>s.tie).length,dn=sigs.length-ties,w=sigs.filter(s=>s.won).length;
-  const seq=sigs.filter(s=>!s.tie).map(s=>s.won?1:0);let mx=0,cu=0;seq.forEach(v=>{cu=v?0:cu+1;mx=Math.max(mx,cu)});
-  Object.assign(row,{total:sigs.length,decided:dn,wr:dn?Math.round(w/dn*100):0,lb:+wilson(w,dn).toFixed(1),pnl:+sigs.reduce((a,s)=>a+s.pnl,0).toFixed(2),
-   max_loss:mx,seq:seq.slice(-16),tail_loss:seq.length>=2&&!seq[seq.length-1]&&!seq[seq.length-2],
-   last:sigs.length?new Date(sigs[sigs.length-1].t*1000).toLocaleTimeString('es-PE',{hour12:false}):null});
- }catch(e){row.error=e.message}
- return row}
-function statusOf(r){if(r.error||!r.total)return'none';if(r.decided<cfg.minN)return'low';
- if(r.lb>=r.be&&!r.tail_loss)return'go';if(r.wr>=r.be)return'watch';return'avoid'}
-
-/* ====== PULSO ====== */
-let busy=false,best=undefined,log=[],left=0,total=60,timer=null,actx=null;
-const LBL={go:'OPERAR',watch:'VIGILAR',avoid:'EVITAR',low:'POCA MUESTRA',none:'SIN DATOS'};
-const pos=v=>Math.max(0,Math.min(1,(v-30)/50)),hm=d=>d.toLocaleTimeString('es-PE',{hour12:false});
-/* tema */
-const root=document.documentElement;
-try{root.dataset.theme=localStorage.getItem('pm_theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}catch(e){}
-$('th').onclick=()=>{root.dataset.theme=root.dataset.theme==='light'?'dark':'light';try{localStorage.setItem('pm_theme',root.dataset.theme)}catch(e){}};
-/* alertas (audio se desbloquea con el primer toque) */
-function audio(){try{actx=actx||new(window.AudioContext||window.webkitAudioContext)();if(actx.state==='suspended')actx.resume()}catch(e){}}
-document.addEventListener('pointerdown',audio,{once:true});
-function beep(){audio();if(!actx)return;[880,1175].forEach((f,i)=>{const o=actx.createOscillator(),g=actx.createGain(),t=actx.currentTime+i*.2;o.frequency.value=f;o.connect(g);g.connect(actx.destination);
- g.gain.setValueAtTime(.001,t);g.gain.exponentialRampToValueAtTime(.3,t+.02);g.gain.exponentialRampToValueAtTime(.001,t+.18);o.start(t);o.stop(t+.2)})}
-function fire(msg){beep();try{navigator.vibrate&&navigator.vibrate([120,60,120])}catch(e){}try{if('Notification' in window&&Notification.permission==='granted')new Notification('Pulso de Mercado',{body:msg})}catch(e){}}
-$('snd').addEventListener('change',()=>{if($('snd').checked){audio();if('Notification' in window&&Notification.permission==='default')Notification.requestPermission()}});
-$('test').onclick=()=>fire('Alerta de prueba');
-/* gauge semicircular: arco 0..1 sobre escala 30–80% */
-function gauge(r,big){
- const pt=(p,r1,r2)=>{const c=Math.cos(Math.PI*p),s=Math.sin(Math.PI*p);return`x1="${60-r1*c}" y1="${62-r1*s}" x2="${60-r2*c}" y2="${62-r2*s}"`};
- return`<path class="t" d="M10 62 A50 50 0 0 1 110 62"/><path class="v" data-o="${157.08*(1-pos(r.wr))}" d="M10 62 A50 50 0 0 1 110 62"/>
- <line class="be" ${pt(pos(r.be),40,58)}/><line class="lb" ${pt(pos(r.lb),40,58)}/>
- <text x="60" y="56" data-n="${r.wr}">0%</text>${big?'<text class="s" x="60" y="72">WIN RATE</text>':''}`}
-function countUp(el){const n=+el.dataset.n,t0=performance.now();(function f(t){const k=Math.min(1,(t-t0)/900);el.textContent=Math.round(n*(1-Math.pow(1-k,3)))+'%';if(k<1)requestAnimationFrame(f)})(t0)}
-function tick(){$('cd').textContent=busy?'escaneando…':'próx. '+left+'s';$('pb').style.transform=busy?'':`scaleX(${1-left/total})`}
-
-async function scan(){
- if(busy)return;busy=true;clearTimeout(timer);document.body.classList.add('scanning');$('dot').className='live busy';$('st').textContent='Escaneando…';tick();
- const t0=new Date();let ws;
- try{
-  ws=await openWS();const rows=[];for(const [n,s] of ASSETS)rows.push(await scanOne(ws,n,s));
-  rows.forEach(r=>r.status=statusOf(r));
-  const ord=Object.fromEntries(ASSETS.map(([n],i)=>[n,i])),rk={go:0,watch:1,avoid:2,low:3,none:4};
-  rows.sort((a,b)=>rk[a.status]-rk[b.status]||b.pnl-a.pnl||b.lb-a.lb||ord[a.asset]-ord[b.asset]);
-  const nb=(rows.find(r=>r.status==='go')||{}).asset||null,changed=best!==undefined&&nb!==best;
-  if(changed){log.unshift({t:hm(t0),f:best,to:nb});log=log.slice(0,15)}
-  best=nb;render(rows,t0);
-  if(changed){const h=$('hero');h.classList.remove('flash');void h.offsetWidth;h.classList.add('flash');if($('snd').checked)fire(nb?`Mejor índice ahora: ${nb}`:'Ningún índice califica — no operar')}
-  $('dot').className='live on';$('st').textContent='Actualizado '+hm(t0);
- }catch(e){$('dot').className='live';$('st').textContent='Error: '+e.message}
- finally{try{ws&&ws.close()}catch(e){};busy=false;document.body.classList.remove('scanning');total=left=cfg.every;tick();timer=setTimeout(scan,cfg.every*1000)}
+const BLUE='#3498db',RED='#e74c3c',ACC='#f1c40f',MUTED='#95a5a6';
+const H=(d,c)=>c==='A'?5-Math.abs(d-5):Math.abs(d-5)-6;
+const REG=(d,c)=>d===0||d===5?'extremo':c==='A'?(d<5?'R1':'R2'):(d<5?'R3':'R4');
+function pos(d,c){const h=H(d,c);const row=c==='A'?5-h:6+(-1-h);const y=34+row*36+(c==='R'?18:0);
+  let x=150;if(d!==0&&d!==5)x=c==='A'?(d<5?220:80):(d<5?80:220);return{x,y}}
+let N=5,pts=[];
+const svg=document.getElementById('tbl');
+function draw(){
+  const full=pts.length>=N;svg.classList.toggle('done',full);
+  let s=`<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="${ACC}"/></marker></defs>`;
+  s+=`<ellipse cx="150" cy="124" rx="122" ry="108" fill="rgba(52,152,219,.10)" stroke="${BLUE}" stroke-opacity=".4"/>`;
+  s+=`<ellipse cx="150" cy="376" rx="122" ry="108" fill="rgba(231,76,60,.10)" stroke="${RED}" stroke-opacity=".4"/>`;
+  s+=`<text x="8" y="16" font-size="11" fill="${BLUE}">ZONA AZUL</text><text x="8" y="494" font-size="11" fill="${RED}">ZONA ROJA</text>`;
+  s+=`<text x="80" y="244" font-size="10" text-anchor="middle" fill="${MUTED}">R2</text><text x="220" y="244" font-size="10" text-anchor="middle" fill="${MUTED}">R1</text>`;
+  s+=`<text x="80" y="262" font-size="10" text-anchor="middle" fill="${MUTED}">R3</text><text x="220" y="262" font-size="10" text-anchor="middle" fill="${MUTED}">R4</text>`;
+  const last=pts[pts.length-1];
+  for(const c of['A','R'])for(let d=0;d<10;d++){const p=pos(d,c),col=c==='A'?BLUE:RED;
+    const idx=pts.map((q,i)=>q.d===d&&q.c===c?i+1:0).filter(Boolean);const on=idx.length>0,isLast=last&&last.d===d&&last.c===c;
+    s+=`<g class="cell" data-d="${d}" data-c="${c}" tabindex="0" role="button" aria-label="${d}${c}"><circle cx="${p.x}" cy="${p.y}" r="15" fill="${on?col:'rgba(0,0,0,.25)'}" stroke="${isLast?ACC:col}" stroke-width="${isLast?3:1.5}"/><text x="${p.x}" y="${p.y+5}" text-anchor="middle" font-size="15" font-weight="bold" fill="${on?'#fff':col}">${d}</text></g>`;
+    s+=`<text x="${p.x<150?p.x-24:p.x+24}" y="${p.y+4}" text-anchor="middle" font-size="9" fill="${MUTED}">${H(d,c)}</text>`;
+    if(on)s+=`<text x="${p.x+(p.x>150?-20:20)}" y="${p.y-14}" text-anchor="middle" font-size="10" font-weight="bold" fill="${ACC}">${idx.join(',')}</text>`;}
+  for(let i=1;i<pts.length;i++){const a=pos(pts[i-1].d,pts[i-1].c),b=pos(pts[i].d,pts[i].c);const dx=b.x-a.x,dy=b.y-a.y,L=Math.hypot(dx,dy);if(L<1)continue;
+    const k=18/L,nw=i===pts.length-1;s+=`<line x1="${a.x+dx*k}" y1="${a.y+dy*k}" x2="${b.x-dx*k}" y2="${b.y-dy*k}" stroke="${ACC}" stroke-width="${nw?3:1.6}" stroke-opacity="${.35+.65*i/(pts.length-1)}" marker-end="url(#ah)" pointer-events="none"/>`}
+  svg.innerHTML=s;
+  document.getElementById('status').textContent=full?`Completo ${pts.length}/${N}`:`${pts.length}/${N}`;
+  document.getElementById('undo').disabled=!pts.length;
+  document.getElementById('seq').innerHTML=pts.length?pts.map((p,i)=>`${i?'<span class="arr">→</span>':''}<span class="chip ${p.c} ${i===pts.length-1?'last':''}">${p.d}${p.c}</span>`).join(''):'<span class="empty">Toca la primera casilla en la tabla.</span>';
+  const dir=v=>v>0?'<span class="up">sube</span>':v<0?'<span class="down">baja</span>':'<span class="flat">igual</span>';
+  let t='<tr><th>TRAMO</th><th>TABLA</th><th>PRECIO</th><th>REGIÓN</th><th></th></tr>',ok=0,bad=0,up=0;
+  for(let i=1;i<pts.length;i++){const a=pts[i-1],b=pts[i];const dt=H(b.d,b.c)-H(a.d,a.c);const dp=b.c==='A'?1:-1;
+    const par=a.c===b.c&&a.d!==b.d&&a.d+b.d===10;const mis=Math.sign(dt)!==dp;mis?bad++:ok++;if(dt>0)up++;
+    t+=`<tr><td>${a.d}${a.c} → ${b.d}${b.c}</td><td>${dir(dt)} <small>${H(a.d,a.c)}→${H(b.d,b.c)}${par?' · paralelos':''}</small></td><td>${dir(dp)}</td><td><small>${REG(a.d,a.c)}→${REG(b.d,b.c)}</small></td><td>${mis?'<span class="mis">NO COINCIDE</span>':''}</td></tr>`}
+  document.getElementById('tramos').innerHTML=pts.length>1?t:'';
+  document.getElementById('sum').innerHTML=pts.length>1?`<div><b>${ok}</b><span>COINCIDEN</span></div><div><b style="color:var(--warn)">${bad}</b><span>NO COINCIDEN</span></div><div><b>${pts.length?H(pts[0].d,pts[0].c):''} → ${H(last.d,last.c)}</b><span>ALTURA INICIO → FIN</span></div>`:'';
 }
-function row(r,i){
- if(r.error)return`<div class="row" style="--i:${i}"><summary><span class="rk">${i+1}</span><div><div class="nm">${r.asset}</div><span class="pill">SIN DATOS</span></div><span></span><span class="m">${r.error}</span><span></span></summary></div>`;
- const sq=r.seq.map((v,k)=>`<i class="sq ${v?'w':''}" style="--k:${k}"></i>`).join('');
- return`<details class="row ${r.status}" style="--i:${i}"><summary><span class="rk">${i+1}</span>
- <div><div class="nm">${r.asset}</div><span class="pill ${r.status}">${LBL[r.status]}</span></div>
- <svg class="gauge" viewBox="0 0 120 70">${gauge(r,false)}</svg>
- <div class="kv"><b class="${r.pnl>=0?'pos':'neg'}">${r.pnl>=0?'+':''}$${r.pnl.toFixed(2)}</b><small class="m">${r.decided} ops · mín ${r.lb}%</small></div><span class="chev">▾</span></summary>
- <dl class="det"><div><dt>Win rate</dt><dd>${r.wr}%</dd></div><div><dt>Mín 95%</dt><dd>${r.lb}%</dd></div><div><dt>Equilibrio</dt><dd>${r.be}%${r.src==='fijo'?'*':''}</dd></div>
- <div><dt>Operaciones</dt><dd>${r.decided}</dd></div><div><dt>Peor racha −</dt><dd>${r.max_loss}</dd></div><div><dt>Última señal</dt><dd>${r.last||'—'}</dd></div>
- <div class="sqs">${sq||'<span class="m">sin operaciones</span>'}</div></dl></details>`}
-function render(rows,t0){
- const spans=rows.map(r=>r.span).filter(Boolean),span=spans.length?Math.min(...spans):cfg.win/60,f2=d=>d.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit',hour12:false});
- document.title=best?`▶ ${best} · Pulso`:'Pulso de Mercado';
- const top=rows.find(r=>r.asset===best)||rows[0];
- $('hero').className='hero'+(best?' go':'')+($('hero').classList.contains('flash')?' flash':'');
- $('hg').innerHTML=top&&!top.error?gauge(top,true):'';
- $('best').innerHTML=best?`<div class="bn ok"><span>${best}</span></div>`.replace(/<\/?div[^>]*>/g,''):'';
- $('best').className='bn '+(best?'ok':'no');
- if(!best)$('best').innerHTML='<span>Ninguno califica — no operar</span>';
- $('meta').innerHTML=`Ventana ${f2(new Date(t0-span*60000))} → ${f2(t0)} (${span} min) · medidos ${rows.filter(r=>!r.error).length}/5 · mínimo ${cfg.minN} ops decididas`
-  +(rows.some(r=>r.trunc)?'<br><span style="color:var(--warn)">⚠ La API cortó en 5000 ticks: la ventana real es más corta.</span>':'');
- $('grid').innerHTML=rows.map(row).join('');
- requestAnimationFrame(()=>requestAnimationFrame(()=>{
-  document.querySelectorAll('.gauge .v').forEach(e=>e.style.strokeDashoffset=e.dataset.o);
-  document.querySelectorAll('.gauge text[data-n]').forEach(countUp)}));
- $('log').innerHTML=log.length?log.map(x=>`<div>${x.t} · ${x.f||'ninguno'} → <b>${x.to||'ninguno'}</b></div>`).join(''):'<span class="m">Sin cambios todavía.</span>';
-}
-$('go').onclick=scan;
-setInterval(()=>{if(!busy&&left>0){left--;tick()}},1000);
-scan();
-</script></body></html>
+function add(g){if(!g||pts.length>=N)return;pts.push({d:+g.dataset.d,c:g.dataset.c});draw()}
+svg.addEventListener('click',e=>add(e.target.closest('.cell')));
+svg.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();add(e.target.closest('.cell'))}});
+document.getElementById('undo').onclick=()=>{pts.pop();draw()};
+document.getElementById('reset').onclick=()=>{pts=[];draw()};
+document.getElementById('seg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;N=+b.dataset.n;
+  [...e.currentTarget.children].forEach(x=>x.setAttribute('aria-pressed',x===b));pts=pts.slice(0,N);draw()});
+// ejemplo inicial (página 4 del PDF) para mostrar cómo funciona
+pts=[{d:3,c:'R'},{d:5,c:'A'},{d:6,c:'A'},{d:8,c:'R'},{d:4,c:'A'}];
+draw();
+</script>
+</body>
+</html>
