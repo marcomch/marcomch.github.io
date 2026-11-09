@@ -1,126 +1,198 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Simulador Tabla XZ</title>
-<style>
-/* Layout: una columna — tabla del "8" arriba, recorrido y tramos debajo (estética del analizador) */
-:root{--bg:#1a1a2e;--bg2:#16213e;--panel:rgba(255,255,255,.05);--line:#34495e;--fg:#ffffff;--muted:#95a5a6;
---blue:#3498db;--red:#e74c3c;--acc:#f1c40f;--ok:#27ae60;--warn:#f39c12;color-scheme:dark}
-*{box-sizing:border-box}
-body{background:linear-gradient(135deg,var(--bg),var(--bg2));color:var(--fg);font-family:'Segoe UI',Tahoma,sans-serif;min-height:100%}
-.wrap{max-width:560px;margin:0 auto;padding-block:20px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:16px}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
-h1{font-size:1.3rem;margin:0;letter-spacing:.5px}
-.sub{color:var(--muted);font-size:.9rem;margin:0}
-.ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.seg button{background:transparent;color:var(--fg);border:0;padding:8px 14px;font-weight:600;cursor:pointer;font-size:.9rem}
-.seg button[aria-pressed="true"]{background:var(--blue)}
-.btn{background:rgba(52,152,219,.2);color:var(--blue);border:1px solid var(--blue);border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer;font-size:.9rem}
-.btn.red{background:rgba(231,76,60,.2);color:var(--red);border-color:var(--red)}
-.btn:disabled{opacity:.35;cursor:default}
-button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
-.status{margin-left:auto;font-family:'Courier New',monospace;font-weight:bold;color:var(--acc)}
-svg{width:100%;max-width:340px;display:block;margin:0 auto}
-svg text{font-family:'Courier New',monospace}
-.cell{cursor:pointer}
-.cell:hover circle{stroke-width:3}
-.done .cell{cursor:default}
-.seq{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-height:34px}
-.chip{font-family:'Courier New',monospace;font-weight:bold;font-size:1.05rem;padding:3px 8px;border-radius:6px}
-.chip.A{background:rgba(52,152,219,.2);color:var(--blue);border:1px solid var(--blue)}
-.chip.R{background:rgba(231,76,60,.2);color:var(--red);border:1px solid var(--red)}
-.chip.last{box-shadow:0 0 0 2px var(--acc)}
-.empty{color:var(--muted);font-size:.9rem}
-.arr{color:var(--muted)}
-.scroll{overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:.9rem}
-th{text-align:left;font-size:.7rem;letter-spacing:1px;color:var(--muted);padding:6px;border-bottom:1px solid var(--line)}
-td{padding:7px 6px;border-bottom:1px solid rgba(255,255,255,.06);white-space:nowrap;font-variant-numeric:tabular-nums}
-.up{color:var(--ok);font-weight:600}.down{color:var(--red);font-weight:600}.flat{color:var(--muted);font-weight:600}
-.mis{font-size:.65rem;font-weight:bold;color:var(--warn);background:rgba(243,156,18,.15);padding:2px 6px;border-radius:4px}
-small{color:var(--muted)}
-.sum{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-.sum div{background:rgba(0,0,0,.2);border:1px solid var(--line);border-radius:8px;padding:8px;text-align:center}
-.sum b{display:block;font-size:1.3rem;font-family:'Courier New',monospace}
-.sum span{font-size:.7rem;color:var(--muted);letter-spacing:.5px}
-.note{font-size:.8rem;color:var(--muted);margin:0}
-</style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cervecería Embrujo | Universo Embrujo</title>
+<meta name="description" content="Cervecería Embrujo: cervezas artesanales con carácter mágico. Arma tu caja, reserva chopp para tu evento y conoce a los brujos.">
+<link rel="preload" href="assets/fondos/hero-bg.webp" as="image" type="image/webp">
+<link rel="preload" href="assets/fonts/cinzel-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css?v=4.10">
 </head>
 <body>
 
-<div class="wrap">
-  <div class="panel">
-    <h1>SIMULADOR TABLA XZ</h1>
-    <p class="sub">Elige cuántos dígitos tendrá el recorrido y toca las casillas en orden. Azul = el tick subió, rojo = el tick bajó.</p>
-    <div class="ctrl">
-      <div class="seg" role="group" aria-label="Cantidad de dígitos" id="seg">
-        <button data-n="4">4</button><button data-n="5" aria-pressed="true">5</button><button data-n="6">6</button>
+<!-- Íconos SVG (sprite). Se usan con <svg class="i"><use href="#i-nombre"/></svg> -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-whatsapp" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 0 0-7.7 13.6L3 21l4.5-1.2A9 9 0 1 0 12 3z"/><path d="M9 8c-.4 1.9 1.6 5.6 5.4 6.6.9.2 1.6-.4 2-1.1l-2-1.1-.9.8c-.9-.4-2-1.5-2.4-2.5l.8-.8L10.9 7.8z"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-tap" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14h20a6 6 0 0 1 6 6v3H10z"/><path d="M16 14V8h8v6M20 8V5"/><path d="M36 20h4v8a3 3 0 0 1-3 3h-1"/><path d="M14 23v8a3 3 0 0 0 3 3h2v8M24 34v3"/><path d="M20 42h12"/></symbol>
+    <symbol id="i-crate" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 24h36v18H6z"/><path d="M6 31h36"/><path d="M11 24V14h5v10M21 24V9h5v15M31 24V14h5v10"/><path d="M12.5 11v3M23.5 6v3M33.5 11v3"/></symbol>
+    <symbol id="i-handshake" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18l8-4 8 3 5-2 6 3 9-3 4 2v14l-4 2-9 5-5-3-4 2-6-4-8-3-4-3z" opacity="0"/><path d="M3 17l7-3 10 2"/><path d="M45 17l-7-3-8 1"/><path d="M3 17v12l6 2M45 17v12l-6 2"/><path d="M20 16l-6 4a3 3 0 0 0 1 5l3 1"/><path d="M20 16l8-1 5 4-9 9a3 3 0 0 1-4-4"/><path d="M15 26l8 8a3 3 0 0 0 4-4M23 34l4 4a3 3 0 0 0 4-4l-3-3"/><path d="M30 34l3 3a3 3 0 0 0 4-4l-6-6"/></symbol>
+    <symbol id="i-instagram" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.2" cy="6.8" r=".6" fill="currentColor"/></symbol>
+    <symbol id="i-facebook" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></symbol>
+    <symbol id="i-youtube" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"/><path d="m10 15 5-3-5-3z"/></symbol>
+    <symbol id="i-tiktok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v11.5a3.5 3.5 0 1 1-3.5-3.5"/><path d="M14 3c.3 2.4 1.9 4 4.5 4.2"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></symbol>
+  </defs>
+</svg>
+
+<header class="nav">
+  <a class="brand" href="#inicio"><img src="assets/logo-embrujo.png" alt="Cervecería Embrujo"></a>
+  <button id="menu" aria-label="Abrir menú" aria-expanded="false" aria-controls="navlinks"><svg class="i"><use href="#i-menu"/></svg></button>
+  <nav id="navlinks">
+    <a href="#pocimas">Nuestras pócimas</a>
+    <a href="#brujos">Los brujos</a>
+    <a href="#caja">Arma tu caja</a>
+    <a href="#chopp">Chopp para eventos</a>
+    <a href="#experiencias">Experiencias</a>
+    <a href="#historia">Nuestra historia</a>
+  </nav>
+  <a class="btn nav-cta" href="https://wa.me/51983983549?text=Hola%2C%20quiero%20informaci%C3%B3n%20sobre%20Cervecer%C3%ADa%20Embrujo." target="_blank" rel="noopener"><svg class="i"><use href="#i-whatsapp"/></svg><span>Escríbenos</span></a>
+</header>
+
+<main>
+  <section id="inicio" class="hero">
+    <div class="hero-content">
+      <img class="hero-logo" src="assets/logo-embrujo.png" alt="Cervecería Embrujo">
+      <h1 class="hero-tagline">CERVEZAS ARTESANALES<br>CON CARÁCTER MÁGICO</h1>
+      <div class="hero-actions">
+        <a class="btn" href="#caja">Arma tu caja <svg class="i arr"><use href="#i-arrow"/></svg></a>
+        <a class="outline" href="#pocimas">Conoce las pócimas</a>
       </div>
-      <button class="btn" id="undo">Deshacer</button>
-      <button class="btn red" id="reset">Reiniciar</button>
-      <span class="status" id="status"></span>
     </div>
-    <svg id="tbl" viewBox="0 0 300 500" role="img" aria-label="Tabla XZ"></svg>
-  </div>
+  </section>
 
-  <div class="panel">
-    <span class="empty" style="letter-spacing:1px;font-size:.75rem">RECORRIDO</span>
-    <div class="seq" id="seq"></div>
-    <div class="scroll"><table id="tramos"></table></div>
-    <div class="sum" id="sum"></div>
-    <p class="note">El precio de cada tramo sale del color del dígito de llegada: si llega a azul el precio subió, si llega a rojo bajó.</p>
-  </div>
-</div>
+  <section id="pocimas" class="section split product-section">
+    <div class="intro">
+      <h2>NUESTRAS<br>PÓCIMAS</h2>
+      <p>Una colección de cervezas artesanales inspiradas en la alquimia, la naturaleza y el carácter de nuestros brujos.</p>
+      <a class="outline" href="#caja">Conócelas <svg class="i arr"><use href="#i-arrow"/></svg></a>
+    </div>
+    <div class="carousel">
+      <div class="bottles" id="bottleGallery"></div>
+      <button class="car-btn prev" data-target="bottleGallery" data-dir="-1" aria-label="Anterior"><svg class="i"><use href="#i-chevron-left"/></svg></button>
+      <button class="car-btn next" data-target="bottleGallery" data-dir="1" aria-label="Siguiente"><svg class="i"><use href="#i-chevron-right"/></svg></button>
+    </div>
+  </section>
 
-<script>
-const BLUE='#3498db',RED='#e74c3c',ACC='#f1c40f',MUTED='#95a5a6';
-const H=(d,c)=>c==='A'?5-Math.abs(d-5):Math.abs(d-5)-6;
-const REG=(d,c)=>d===0||d===5?'extremo':c==='A'?(d<5?'R1':'R2'):(d<5?'R3':'R4');
-function pos(d,c){const h=H(d,c);const row=c==='A'?5-h:6+(-1-h);const y=34+row*36+(c==='R'?18:0);
-  let x=150;if(d!==0&&d!==5)x=c==='A'?(d<5?220:80):(d<5?80:220);return{x,y}}
-let N=5,pts=[];
-const svg=document.getElementById('tbl');
-function draw(){
-  const full=pts.length>=N;svg.classList.toggle('done',full);
-  let s=`<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="${ACC}"/></marker></defs>`;
-  s+=`<ellipse cx="150" cy="124" rx="122" ry="108" fill="rgba(52,152,219,.10)" stroke="${BLUE}" stroke-opacity=".4"/>`;
-  s+=`<ellipse cx="150" cy="376" rx="122" ry="108" fill="rgba(231,76,60,.10)" stroke="${RED}" stroke-opacity=".4"/>`;
-  s+=`<text x="8" y="16" font-size="11" fill="${BLUE}">ZONA AZUL</text><text x="8" y="494" font-size="11" fill="${RED}">ZONA ROJA</text>`;
-  s+=`<text x="80" y="244" font-size="10" text-anchor="middle" fill="${MUTED}">R2</text><text x="220" y="244" font-size="10" text-anchor="middle" fill="${MUTED}">R1</text>`;
-  s+=`<text x="80" y="262" font-size="10" text-anchor="middle" fill="${MUTED}">R3</text><text x="220" y="262" font-size="10" text-anchor="middle" fill="${MUTED}">R4</text>`;
-  const last=pts[pts.length-1];
-  for(const c of['A','R'])for(let d=0;d<10;d++){const p=pos(d,c),col=c==='A'?BLUE:RED;
-    const idx=pts.map((q,i)=>q.d===d&&q.c===c?i+1:0).filter(Boolean);const on=idx.length>0,isLast=last&&last.d===d&&last.c===c;
-    s+=`<g class="cell" data-d="${d}" data-c="${c}" tabindex="0" role="button" aria-label="${d}${c}"><circle cx="${p.x}" cy="${p.y}" r="15" fill="${on?col:'rgba(0,0,0,.25)'}" stroke="${isLast?ACC:col}" stroke-width="${isLast?3:1.5}"/><text x="${p.x}" y="${p.y+5}" text-anchor="middle" font-size="15" font-weight="bold" fill="${on?'#fff':col}">${d}</text></g>`;
-    s+=`<text x="${p.x<150?p.x-24:p.x+24}" y="${p.y+4}" text-anchor="middle" font-size="9" fill="${MUTED}">${H(d,c)}</text>`;
-    if(on)s+=`<text x="${p.x+(p.x>150?-20:20)}" y="${p.y-14}" text-anchor="middle" font-size="10" font-weight="bold" fill="${ACC}">${idx.join(',')}</text>`;}
-  for(let i=1;i<pts.length;i++){const a=pos(pts[i-1].d,pts[i-1].c),b=pos(pts[i].d,pts[i].c);const dx=b.x-a.x,dy=b.y-a.y,L=Math.hypot(dx,dy);if(L<1)continue;
-    const k=18/L,nw=i===pts.length-1;s+=`<line x1="${a.x+dx*k}" y1="${a.y+dy*k}" x2="${b.x-dx*k}" y2="${b.y-dy*k}" stroke="${ACC}" stroke-width="${nw?3:1.6}" stroke-opacity="${.35+.65*i/(pts.length-1)}" marker-end="url(#ah)" pointer-events="none"/>`}
-  svg.innerHTML=s;
-  document.getElementById('status').textContent=full?`Completo ${pts.length}/${N}`:`${pts.length}/${N}`;
-  document.getElementById('undo').disabled=!pts.length;
-  document.getElementById('seq').innerHTML=pts.length?pts.map((p,i)=>`${i?'<span class="arr">→</span>':''}<span class="chip ${p.c} ${i===pts.length-1?'last':''}">${p.d}${p.c}</span>`).join(''):'<span class="empty">Toca la primera casilla en la tabla.</span>';
-  const dir=v=>v>0?'<span class="up">sube</span>':v<0?'<span class="down">baja</span>':'<span class="flat">igual</span>';
-  let t='<tr><th>TRAMO</th><th>TABLA</th><th>PRECIO</th><th>REGIÓN</th><th></th></tr>',ok=0,bad=0,up=0;
-  for(let i=1;i<pts.length;i++){const a=pts[i-1],b=pts[i];const dt=H(b.d,b.c)-H(a.d,a.c);const dp=b.c==='A'?1:-1;
-    const par=a.c===b.c&&a.d!==b.d&&a.d+b.d===10;const mis=Math.sign(dt)!==dp;mis?bad++:ok++;if(dt>0)up++;
-    t+=`<tr><td>${a.d}${a.c} → ${b.d}${b.c}</td><td>${dir(dt)} <small>${H(a.d,a.c)}→${H(b.d,b.c)}${par?' · paralelos':''}</small></td><td>${dir(dp)}</td><td><small>${REG(a.d,a.c)}→${REG(b.d,b.c)}</small></td><td>${mis?'<span class="mis">NO COINCIDE</span>':''}</td></tr>`}
-  document.getElementById('tramos').innerHTML=pts.length>1?t:'';
-  document.getElementById('sum').innerHTML=pts.length>1?`<div><b>${ok}</b><span>COINCIDEN</span></div><div><b style="color:var(--warn)">${bad}</b><span>NO COINCIDEN</span></div><div><b>${pts.length?H(pts[0].d,pts[0].c):''} → ${H(last.d,last.c)}</b><span>ALTURA INICIO → FIN</span></div>`:'';
-}
-function add(g){if(!g||pts.length>=N)return;pts.push({d:+g.dataset.d,c:g.dataset.c});draw()}
-svg.addEventListener('click',e=>add(e.target.closest('.cell')));
-svg.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();add(e.target.closest('.cell'))}});
-document.getElementById('undo').onclick=()=>{pts.pop();draw()};
-document.getElementById('reset').onclick=()=>{pts=[];draw()};
-document.getElementById('seg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;N=+b.dataset.n;
-  [...e.currentTarget.children].forEach(x=>x.setAttribute('aria-pressed',x===b));pts=pts.slice(0,N);draw()});
-// ejemplo inicial (página 4 del PDF) para mostrar cómo funciona
-pts=[{d:3,c:'R'},{d:5,c:'A'},{d:6,c:'A'},{d:8,c:'R'},{d:4,c:'A'}];
-draw();
-</script>
+  <section id="brujos" class="section split character-section">
+    <div class="intro">
+      <h2>LOS<br>BRUJOS</h2>
+      <p>Conoce a los maestros cerveceros que dan vida a cada receta. Alquimistas, botánicos, errantes... ellos son Embrujo.</p>
+    </div>
+    <div class="carousel">
+      <div class="characters" id="characterGallery"></div>
+      <button class="car-btn prev" data-target="characterGallery" data-dir="-1" aria-label="Anterior"><svg class="i"><use href="#i-chevron-left"/></svg></button>
+      <button class="car-btn next" data-target="characterGallery" data-dir="1" aria-label="Siguiente"><svg class="i"><use href="#i-chevron-right"/></svg></button>
+    </div>
+  </section>
+
+  <section id="experiencias" class="section experiences">
+    <div class="intro">
+      <h2>EXPERIENCIAS<br>EMBRUJO</h2>
+      <p>Llevamos la magia de nuestra cervecería a tus eventos y celebraciones.</p>
+      <div class="services">
+        <a href="#chopp"><svg class="i i-lg"><use href="#i-tap"/></svg><span class="svc-text"><span class="svc-title">Chopp para eventos</span><span class="svc-sub">Cotiza tu evento</span></span></a>
+        <a href="#caja"><svg class="i i-lg"><use href="#i-crate"/></svg><span class="svc-text"><span class="svc-title">Cajas personalizadas</span><span class="svc-sub">Arma tu caja</span></span></a>
+        <a href="https://wa.me/51983983549?text=Hola%2C%20quiero%20informaci%C3%B3n%20de%20ventas%20corporativas" target="_blank" rel="noopener"><svg class="i i-lg"><use href="#i-handshake"/></svg><span class="svc-text"><span class="svc-title">Ventas corporativas</span><span class="svc-sub"><svg class="i"><use href="#i-whatsapp"/></svg>Escríbenos por WhatsApp</span></span></a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section configurators">
+    <div id="caja" class="config box-config">
+      <div class="config-heading">
+        <h2>ARMA TU CAJA</h2>
+        <p>Elige tus pócimas favoritas, combina estilos y lleva la magia de Embrujo a donde quieras.</p>
+      </div>
+      <div class="panel sel-panel">
+        <div class="mini-count" aria-hidden="true"><strong id="miniCount">0 / 12</strong><span id="miniLeft">Faltan 12 botellas</span></div>
+        <h3>Selecciona tus pócimas</h3>
+        <div class="choice"><label for="boxsize">Presentación</label>
+          <select id="boxsize"><option value="12">12 botellas</option><option value="24">24 botellas</option></select>
+        </div>
+        <small class="hint">Cambiar la presentación reinicia tu selección.</small>
+        <div id="boxrows"></div>
+      </div>
+      <div class="panel summary">
+        <h3>Tu selección</h3>
+        <ul id="boxlist" class="sel-list" aria-label="Cervezas elegidas"></ul>
+        <div class="count"><strong id="boxcount">0 / 12</strong><span>botellas</span></div>
+        <div class="notches" id="boxnotches" aria-hidden="true"></div>
+        <p id="boxstatus" role="status">Selecciona tus cervezas</p>
+        <p id="boxhint" class="hint"></p>
+        <button class="btn" id="sendbox" aria-disabled="true"><svg class="i"><use href="#i-whatsapp"/></svg> Solicitar por WhatsApp</button>
+        <p id="boxnote" class="form-note" role="status" aria-live="polite"></p>
+      </div>
+    </div>
+
+    <div id="chopp" class="config chopp">
+      <div class="config-heading">
+        <h2>RESERVA TU CHOPP</h2>
+        <p>Solicita una cotización para tu evento.</p>
+      </div>
+      <form id="choppform" class="panel" novalidate>
+        <h3>Cotiza tu evento</h3>
+        <div class="field-row">
+          <label>Fecha del evento<input type="date" name="fecha" required></label>
+          <label>Tipo de evento
+            <select name="tipo" required><option value="">Selecciona</option><option>Cumpleaños</option><option>Matrimonio</option><option>Evento corporativo</option><option>Reunión</option><option>Otro</option></select>
+          </label>
+        </div>
+        <div class="field-row">
+          <label>Número aproximado de invitados<input type="number" name="invitados" min="1" required placeholder="Ej. 50"></label>
+          <label>Ubicación<input name="ubicacion" required placeholder="Distrito / ciudad"></label>
+        </div>
+        <fieldset><legend>Estilos de cerveza (puedes elegir varios)</legend><div class="checks" id="beerchecks"></div></fieldset>
+        <label>Comentarios adicionales<textarea name="comentarios" rows="2" placeholder="Duración, preferencias, etc."></textarea></label>
+        <button class="btn" type="submit"><svg class="i"><use href="#i-whatsapp"/></svg> Cotizar por WhatsApp</button>
+        <p id="choppnote" class="form-note" role="status" aria-live="polite"></p>
+        <small>Solicitud sujeta a disponibilidad y cotización; no confirma una reserva.</small>
+      </form>
+    </div>
+  </section>
+
+  <section class="section story">
+    <div id="historia" class="story-half">
+      <div class="intro">
+        <h2>NUESTRA<br>HISTORIA</h2>
+        <p>Embrujo nace de la unión entre la pasión cervecera y la magia de lo artesanal. Un refugio donde la creatividad, la amistad y el buen lúpulo se convierten en cerveza.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="sf-fog sf-f2" aria-hidden="true"><i></i></div>
+  <div class="sf-fog sf-f1" aria-hidden="true"><i></i></div>
+  <div class="sf-main">
+    <div class="sf-brand">
+      <img class="sf-logo" src="assets/logo-embrujo.png" alt="Cervecería Embrujo">
+      <!-- PENDIENTE: reemplazar los href="#" por los enlaces reales de cada red -->
+      <div class="sf-socials">
+        <a class="sf-soc" href="#" aria-label="Instagram"><svg class="i"><use href="#i-instagram"/></svg></a>
+        <a class="sf-soc" href="#" aria-label="Facebook"><svg class="i"><use href="#i-facebook"/></svg></a>
+        <a class="sf-soc" href="#" aria-label="YouTube"><svg class="i"><use href="#i-youtube"/></svg></a>
+        <a class="sf-soc" href="#" aria-label="TikTok"><svg class="i"><use href="#i-tiktok"/></svg></a>
+      </div>
+    </div>
+    <i class="sf-div" aria-hidden="true"></i>
+    <nav class="sf-col" aria-label="Explora">
+      <h3>EXPLORA</h3>
+      <a class="sf-lk" href="#pocimas">Nuestras Pócimas</a>
+      <a class="sf-lk" href="#brujos">Los Brujos</a>
+      <a class="sf-lk" href="#caja">Arma tu Caja</a>
+      <a class="sf-lk" href="#chopp">Chopp para Eventos</a>
+      <a class="sf-lk" href="#experiencias">Experiencias</a>
+    </nav>
+    <i class="sf-div" aria-hidden="true"></i>
+    <div class="sf-col">
+      <h3>CONTÁCTANOS</h3>
+      <a class="sf-ct" href="https://wa.me/51983983549?text=Hola%2C%20quiero%20informaci%C3%B3n%20sobre%20Cervecer%C3%ADa%20Embrujo." target="_blank" rel="noopener"><svg class="i"><use href="#i-whatsapp"/></svg><span>+51 983 983 549</span></a>
+      <a class="sf-ct" href="mailto:hola@cerveceriaembrujo.com"><svg class="i"><use href="#i-mail"/></svg><span>hola@cerveceriaembrujo.com</span></a>
+      <p class="sf-ct"><svg class="i"><use href="#i-pin"/></svg><span>Lima, Perú</span></p>
+    </div>
+  </div>
+  <div class="sf-legal"><span>© 2026 Cervecería Embrujo</span><span>Tomar bebidas alcohólicas en exceso es dañino · Solo para mayores de 18 años</span></div>
+</footer>
+
+<a class="wa" href="https://wa.me/51983983549?text=Hola%2C%20quiero%20informaci%C3%B3n%20sobre%20Cervecer%C3%ADa%20Embrujo." aria-label="Escríbenos por WhatsApp" target="_blank" rel="noopener"><svg class="i"><use href="#i-whatsapp"/></svg></a>
+<script src="script.js?v=4.9"></script>
 </body>
 </html>
