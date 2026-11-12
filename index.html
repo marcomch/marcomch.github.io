@@ -7,7 +7,7 @@
 <meta name="description" content="Cervecería Embrujo: cervezas artesanales con carácter mágico. Arma tu caja, reserva chopp para tu evento y conoce a los brujos.">
 <link rel="preload" href="assets/fondos/hero-bg.webp" as="image" type="image/webp">
 <link rel="preload" href="assets/fonts/cinzel-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=4.30">
+<link rel="stylesheet" href="styles.css?v=4.32">
 </head>
 <body>
 
@@ -44,7 +44,7 @@
     <a href="#experiencias">Experiencias</a>
     <a href="#historia">Nuestra historia</a>
   </nav>
-  <a class="btn nav-cta" href="https://wa.me/51983983549?text=Hola%2C%20quiero%20informaci%C3%B3n%20sobre%20Cervecer%C3%ADa%20Embrujo." target="_blank" rel="noopener"><svg class="i"><use href="#i-whatsapp"/></svg><span>Escríbenos</span></a>
+  <a class="btn nav-cta" data-correo="escribenos" href="https://wa.me/51983983549?text=Hola%2C%20quiero%20informaci%C3%B3n%20sobre%20Cervecer%C3%ADa%20Embrujo." target="_blank" rel="noopener"><svg class="i"><use href="#i-whatsapp"/></svg><span>Escríbenos</span></a>
 </header>
 
 <main>
@@ -111,7 +111,12 @@
         <p class="delivery">El precio no incluye Delivery.</p>
         <p id="boxstatus" role="status">Selecciona tus cervezas</p>
         <p id="boxhint" class="hint"></p>
-        <button class="btn" id="sendbox" aria-disabled="true"><svg class="i"><use href="#i-whatsapp"/></svg> Solicitar por WhatsApp</button>
+        <!-- Solo escritorio: nombre y celular para enviar la solicitud por correo (en móvil se oculta y se usa WhatsApp) -->
+        <div class="field-row pc-only contacto">
+          <label>Nombre<input id="cajaNombre" autocomplete="name" placeholder="Tu nombre"></label>
+          <label>Celular<input id="cajaCel" type="tel" inputmode="tel" autocomplete="tel" placeholder="Ej. 983 983 549"></label>
+        </div>
+        <button class="btn" id="sendbox" aria-disabled="true"><svg class="i"><use href="#i-whatsapp"/></svg> <span class="lbl">Solicitar por WhatsApp</span></button>
         <p id="boxnote" class="form-note" role="status" aria-live="polite"></p>
       </div>
     </div>
@@ -133,9 +138,14 @@
           <label>Número aproximado de invitados<input type="number" name="invitados" min="1" required placeholder="Ej. 50"></label>
           <label>Ubicación<input name="ubicacion" required placeholder="Distrito / ciudad"></label>
         </div>
+        <!-- Solo escritorio: datos de contacto para el envío por correo -->
+        <div class="field-row pc-only">
+          <label>Nombre<input name="nombre" autocomplete="name" placeholder="Tu nombre"></label>
+          <label>Celular<input name="celular" type="tel" inputmode="tel" autocomplete="tel" placeholder="Ej. 983 983 549"></label>
+        </div>
         <fieldset><legend>Estilos de cerveza (puedes elegir varios)</legend><div class="checks" id="beerchecks"></div></fieldset>
         <label>Comentarios adicionales<textarea name="comentarios" rows="2" placeholder="Duración, preferencias, etc."></textarea></label>
-        <button class="btn" type="submit"><svg class="i"><use href="#i-whatsapp"/></svg> Cotizar por WhatsApp</button>
+        <button class="btn" type="submit"><svg class="i"><use href="#i-whatsapp"/></svg> <span class="lbl">Cotizar por WhatsApp</span></button>
         <p id="choppnote" class="form-note" role="status" aria-live="polite"></p>
         <small>Solicitud sujeta a disponibilidad y cotización; no confirma una reserva.</small>
       </form>
@@ -148,7 +158,7 @@
       <h2 id="experiencias-titulo">EXPERIENCIAS<br>EMBRUJO</h2>
       <p class="exp-quote">Las mejores historias nacen cuando nos juntamos.</p>
       <p class="exp-desc">Eventos, alianzas y experiencias a medida para empresas, marcas y productores.</p>
-      <a class="exp-wa" href="https://wa.me/51983983549?text=Hola%2C%20me%20gustar%C3%ADa%20conversar%20sobre%20una%20experiencia%20o%20colaboraci%C3%B3n%20con%20Embrujo" target="_blank" rel="noopener noreferrer" aria-label="Conjuremos algo juntos por WhatsApp">✦ &nbsp; CONJUREMOS ALGO JUNTOS &nbsp; ↗</a>
+      <a class="exp-wa" data-correo="experiencias" href="https://wa.me/51983983549?text=Hola%2C%20me%20gustar%C3%ADa%20conversar%20sobre%20una%20experiencia%20o%20colaboraci%C3%B3n%20con%20Embrujo" target="_blank" rel="noopener noreferrer" aria-label="Conjuremos algo juntos por WhatsApp">✦ &nbsp; CONJUREMOS ALGO JUNTOS &nbsp; ↗</a>
     </div>
     <div class="experiences-gallery" aria-label="Opciones de colaboración">
       <figure><img src="assets/experiencias/eventos.png" alt="Eventos: festivales, ferias y celebraciones privadas" loading="lazy" width="344" height="582"></figure>
@@ -213,6 +223,6 @@
 </footer>
 
 <a class="wa" href="https://wa.me/51983983549?text=Hola%2C%20quiero%20informaci%C3%B3n%20sobre%20Cervecer%C3%ADa%20Embrujo." aria-label="Escríbenos por WhatsApp" target="_blank" rel="noopener"><svg class="i"><use href="#i-whatsapp"/></svg></a>
-<script src="script.js?v=4.22"></script>
+<script src="script.js?v=4.24"></script>
 </body>
 </html>
