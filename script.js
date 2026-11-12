@@ -366,7 +366,8 @@ const CORREO={
   destino:'cerveceria.embrujo@gmail.com',
   servicio:'https://formsubmit.co/ajax/',
   asuntoInfo:'Se requiere información',   /* Escríbenos (parte superior) y Experiencias */
-  asuntoPedido:'Solicitud de pedido'      /* Arma tu caja y Reserva tu chopp */
+  asuntoPedido:'Solicitud de pedido',     /* Arma tu caja y Reserva tu chopp */
+  espera:15                               /* segundos máximos de espera antes de mostrar el aviso de error */
 };
 /* Escritorio = ratón + pantalla ancha. En celular y tablet se mantiene WhatsApp. */
 function esEscritorio(){return matchMedia('(hover: hover) and (pointer: fine)').matches&&innerWidth>=900}
@@ -378,11 +379,17 @@ const BTN={caja:['Enviar solicitud','Solicitar por WhatsApp'],chopp:['Enviar cot
   m();addEventListener('resize',m)})();
 const MAIL_OK='¡Listo! Recibimos tu mensaje y te contactaremos pronto.';
 const MAIL_ERR='No pudimos enviar tu mensaje. Inténtalo de nuevo o escríbenos a '+CORREO.destino+'.';
+/* Si el servicio no responde en 'espera' segundos, se corta y se avisa (así nunca se queda en "Enviando…").
+   Los detalles técnicos del fallo salen en la consola del navegador (F12) para que puedas revisarlos. */
 async function postCorreo(asunto,nombre,celular,mensaje){
-  const r=await fetch(CORREO.servicio+CORREO.destino,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},
-    body:JSON.stringify({_subject:asunto,_captcha:'false',_template:'box',Nombre:nombre,Celular:celular,Mensaje:mensaje})});
-  const j=await r.json().catch(()=>({}));
-  if(!r.ok||j.success==='false')throw new Error('envio');
+  const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),CORREO.espera*1000);
+  try{
+    const r=await fetch(CORREO.servicio+CORREO.destino,{method:'POST',signal:ctl.signal,headers:{'Content-Type':'application/json',Accept:'application/json'},
+      body:JSON.stringify({_subject:asunto,_captcha:'false',_template:'box',Nombre:nombre,Celular:celular,Mensaje:mensaje})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok||String(j.success)==='false'){console.warn('Envío por correo falló:',r.status,j);throw new Error('envio')}
+  }catch(e){if(e.name==='AbortError')console.warn('Envío por correo: el servicio no respondió a tiempo.');else console.warn('Envío por correo:',e);throw e}
+  finally{clearTimeout(t)}
 }
 /* Arma tu caja / Reserva tu chopp: usa el mismo mensaje que iría a WhatsApp */
 async function enviarCorreo(tipo,mensaje){
