@@ -438,7 +438,7 @@ async function enviarCorreo(tipo,mensaje){
      (dentro de la función permitirAcceso, marcada abajo).
    ===================================================================== */
 (()=>{
-  const EDAD={dias:30,clave:'embrujo_edad_v1'};
+  const EDAD={dias:5,clave:'embrujo_edad_v1'};
   const portal=document.getElementById('agegate'),root=document.documentElement;
   if(!portal||!root.classList.contains('age-lock'))return;
   const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
