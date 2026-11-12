@@ -866,3 +866,40 @@ section.configurators .config.chopp .config-heading img{display:none}
 
 /* V4.30 · Los brujos: lienzo del círculo mágico detrás de personajes y título */
 #brujos>.intro,#brujos>.carousel{position:relative;z-index:1}
+
+/* =====================================================================
+   V4.31 · ENVÍO POR CORREO (solo escritorio)
+   .pc-only = campos que solo se ven en escritorio (clase es-pc en <html>, la pone script.js).
+   Colores del papel: igual que Arma tu caja.
+   ===================================================================== */
+.pc-only{display:none}
+.es-pc .pc-only{display:grid}
+#caja .contacto{margin:10px 0 12px}
+#caja .contacto label{color:var(--tinta)}
+#caja .contacto input{background:#f6e9cb99;color:var(--tinta);border:1px solid var(--linea);border-radius:3px}
+#caja .contacto input::placeholder{color:var(--tinta-suave);opacity:.8}
+.mail-dlg{--papel-claro:#f3e2bd;--papel-medio:#ecd6a8;--papel-oscuro:#dcbd89;--tinta:#2a1d17;--tinta-suave:#6e5443;--acento:#7d291e;--linea:#7b5a40;
+  border:0;background:none;padding:26px;max-width:none;max-height:none;width:min(600px,100vw);color:var(--tinta);overflow:visible}
+.mail-dlg::backdrop{background:#0a070acc}
+.mail-dlg .pap{position:relative;isolation:isolate;padding:28px 28px 26px;border-radius:3px;color:var(--tinta)}
+.mail-dlg .pap::before{content:"";position:absolute;inset:-4px;z-index:-1;background:radial-gradient(ellipse at 15% 0,var(--papel-claro),transparent 55%),radial-gradient(ellipse at 90% 100%,#c9a46d66,transparent 55%),linear-gradient(170deg,var(--papel-medio),var(--papel-oscuro));filter:url(#rough-papel);box-shadow:0 0 0 1px #6b4a3055,0 14px 44px #000a}
+.mail-dlg .web{position:absolute;width:120px;height:120px;pointer-events:none;opacity:.5;z-index:2;background:url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22 fill=%22none%22 stroke=%22%232f2119%22 stroke-width=%221%22 stroke-linecap=%22round%22%3E%3Cpath d=%22M0 0L100 8M0 0L88 40M0 0L62 74M0 0L30 96M0 0L6 100%22/%3E%3Cpath d=%22M0 14Q8 12 14 0M0 30Q14 26 30 0M0 48Q22 40 48 0M0 68Q30 54 66 0M0 90Q40 70 90 0%22/%3E%3C/svg%3E") 0 0/100% 100% no-repeat}
+.mail-dlg .web.wa{left:0;top:0}.mail-dlg .web.wb{right:0;bottom:0;transform:rotate(180deg)}
+.mail-dlg .sk{position:absolute;width:32px;right:46px;top:12px;z-index:2;pointer-events:none;opacity:.85}
+.mail-dlg .sk2{right:auto;top:auto;left:14px;bottom:12px}
+.mail-dlg h2{margin:0 0 4px;color:#3a2218;font-size:clamp(20px,2.2vw,26px)}
+.mail-dlg .md-sub{margin:0 0 14px;color:var(--tinta-suave);font-style:italic}
+.mail-dlg label{color:var(--tinta)}
+.mail-dlg input,.mail-dlg textarea{background:#f6e9cb99;color:var(--tinta);border:1px solid var(--linea);border-radius:3px}
+.mail-dlg input::placeholder,.mail-dlg textarea::placeholder{color:var(--tinta-suave);opacity:.8}
+.mail-dlg :focus-visible{outline-color:var(--acento)}
+.mail-dlg .btn{width:100%;justify-content:center;background:linear-gradient(180deg,#8f3426,#6a2218);border:1px solid #c99e70;color:#fff1de;box-shadow:inset 0 0 0 3px #6a2218,inset 0 0 0 4px #c99e7088}
+.mail-dlg .btn:hover{filter:brightness(1.12)}
+.mail-dlg .form-note{color:#5a1d15;min-height:1.2em}.mail-dlg .form-note.is-warn{color:#8a1f12}
+.mail-dlg .md-x{position:absolute;right:30px;top:10px;z-index:3;background:none;border:0;color:#5a1d15;font:700 28px/1 serif;padding:4px 8px;cursor:pointer}
+
+.mail-dlg label{display:flex;flex-direction:column;gap:5px;margin-bottom:12px;min-width:0}
+.mail-dlg .field-row{gap:0 14px}
+.mail-dlg input,.mail-dlg textarea{width:100%;padding:8px 10px;font:inherit;font-size:17px}
+.mail-dlg textarea{resize:vertical}
+.mail-dlg .sk{right:70px}
