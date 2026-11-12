@@ -426,3 +426,79 @@ async function enviarCorreo(tipo,mensaje){
     btn.disabled=false;
   });
 })();
+
+
+/* =====================================================================
+   PORTAL DE MAYORÍA DE EDAD (+18)
+   >>> AJUSTES: dias = vigencia de la confirmación · clave = nombre en localStorage <<<
+   · Si el visitante confirma, se guarda {ok, exp} en localStorage y no vuelve a verlo hasta que venza.
+   · Si localStorage no está disponible, puede entrar solo durante esta visita (se vuelve a preguntar al recargar).
+   · Mientras está activo, el resto de la página queda inerte (sin clics, sin Tab, sin lectores de pantalla).
+   · No se carga ninguna herramienta de seguimiento aquí. Si algún día agregas analítica, cárgala DESPUÉS de la confirmación
+     (dentro de la función permitirAcceso, marcada abajo).
+   ===================================================================== */
+(()=>{
+  const EDAD={dias:30,clave:'embrujo_edad_v1'};
+  const portal=document.getElementById('agegate'),root=document.documentElement;
+  if(!portal||!root.classList.contains('age-lock'))return;
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /* Todo lo que no es el portal queda inerte mientras esté abierto */
+  const resto=[...document.body.children].filter(n=>n!==portal&&n.tagName!=='SCRIPT'&&n.tagName!=='svg');
+  const bloquear=on=>resto.forEach(n=>{if(on){n.setAttribute('inert','');n.setAttribute('aria-hidden','true')}else{n.removeAttribute('inert');n.removeAttribute('aria-hidden')}});
+  bloquear(true);
+  /* Fondo: estrellas que titilan + círculo mágico de runas (el mismo estilo de "Los brujos").
+     AJUSTES: ESTRELLAS = cantidad (más alto = más estrellas) · GIRO = velocidad del círculo (0 = quieto) · BRILLO = opacidad general */
+  const FONDO={estrellas:14000,giro:.1,brillo:1};
+  const cvE=portal.querySelector('.ag-stars'),cvR=portal.querySelector('.ag-ring'),RUNAS='\u16a0\u16a2\u16a6\u16a8\u16b1\u16b2\u16b7\u16b9\u16c1\u16c7\u16c9\u16d2',TAU=Math.PI*2;
+  let stars=[],raf=0;
+  const ex=cvE.getContext('2d'),rx=cvR.getContext('2d');
+  function medir(){const d=Math.min(devicePixelRatio||1,1.5);
+    const W=portal.clientWidth,H=portal.clientHeight;cvE.width=W*d;cvE.height=H*d;ex.setTransform(d,0,0,d,0,0);
+    const S=cvR.clientWidth;cvR.width=S*d;cvR.height=S*d;rx.setTransform(d,0,0,d,0,0);
+    stars=Array.from({length:Math.max(18,Math.round(W*H/FONDO.estrellas))},()=>({x:Math.random()*W,y:Math.random()*H,r:.4+Math.random()*.9,p:Math.random()*TAU,v:.6+Math.random()*1.2}));
+    pintar(performance.now()/1000)}
+  function pintar(t){
+    const W=portal.clientWidth,H=portal.clientHeight,S=cvR.clientWidth,k=FONDO.brillo;
+    ex.clearRect(0,0,W,H);
+    stars.forEach(o=>{ex.fillStyle='rgba(255,236,200,'+k*.7*(.2+.7*(.5+.5*Math.sin(t*o.v+o.p)))+')';ex.beginPath();ex.arc(o.x,o.y,o.r,0,TAU);ex.fill()});
+    rx.clearRect(0,0,S,S);const r=S*.46,pu=.5+.5*Math.sin(t*1.2);
+    rx.save();rx.translate(S/2,S/2);rx.strokeStyle='rgba(217,170,101,'+k*(.22+.12*pu)+')';rx.shadowColor='#d9aa65';rx.shadowBlur=10;rx.lineWidth=1.2;
+    [r,r*.86,r*.5].forEach(q=>{rx.beginPath();rx.arc(0,0,q,0,TAU);rx.stroke()});
+    rx.save();rx.rotate(t*FONDO.giro);rx.font='600 '+r*.1+'px serif';rx.textAlign='center';rx.textBaseline='middle';rx.fillStyle='rgba(232,184,104,'+k*(.4+.25*pu)+')';
+    for(let i=0;i<RUNAS.length;i++){rx.save();rx.rotate(i/RUNAS.length*TAU);rx.translate(0,-r*.93);rx.fillText(RUNAS[i],0,0);rx.restore()}rx.restore();
+    rx.rotate(-t*FONDO.giro*.7);rx.beginPath();for(let i=0;i<5;i++){const q=i*TAU*2/5-Math.PI/2;rx.lineTo(Math.cos(q)*r*.5,Math.sin(q)*r*.5)}rx.closePath();rx.stroke();rx.restore();
+  }
+  const bucle=t=>{pintar(t/1000);raf=requestAnimationFrame(bucle)};
+  medir();addEventListener('resize',medir);
+  if(!reduce)raf=requestAnimationFrame(bucle);   /* con movimiento reducido queda una imagen fija */
+  document.addEventListener('visibilitychange',()=>{if(reduce||!root.classList.contains('age-lock'))return;if(document.hidden){cancelAnimationFrame(raf);raf=0}else if(!raf)raf=requestAnimationFrame(bucle)});
+  const si=document.getElementById('ag-si'),no=document.getElementById('ag-no'),ask=document.getElementById('ag-ask'),deny=document.getElementById('ag-deny');
+  let negado=false;
+  const foco=()=>(negado?document.getElementById('ag-titulo-no'):si).focus({preventScroll:true});
+  foco();
+  /* Sin cierre por Escape ni por clic fuera; Tab queda atrapado dentro del portal */
+  portal.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){e.preventDefault();e.stopPropagation();return}
+    if(e.key==='Tab'){
+      const f=[...portal.querySelectorAll('button:not([hidden])')].filter(b=>b.offsetParent!==null);
+      if(!f.length){e.preventDefault();return}
+      const i=f.indexOf(document.activeElement);
+      if(e.shiftKey&&i<=0){e.preventDefault();f[f.length-1].focus()}
+      else if(!e.shiftKey&&i===f.length-1){e.preventDefault();f[0].focus()}
+    }
+  });
+  document.addEventListener('focusin',e=>{if(root.classList.contains('age-lock')&&!portal.contains(e.target))foco()});
+  ['wheel','touchmove'].forEach(ev=>portal.addEventListener(ev,e=>e.preventDefault(),{passive:false}));
+  /* Mayor de edad */
+  function permitirAcceso(){
+    try{localStorage.setItem(EDAD.clave,JSON.stringify({ok:true,exp:Date.now()+EDAD.dias*864e5}))}catch(e){/* sin localStorage: solo esta visita */}
+    /* >>> Aquí (y solo aquí) se cargarían herramientas opcionales de seguimiento, ya con consentimiento <<< */
+    const abrir=()=>{cancelAnimationFrame(raf);raf=0;root.classList.remove('age-lock');portal.classList.remove('is-closing');bloquear(false);const m=document.querySelector('main');if(m){m.setAttribute('tabindex','-1');m.focus({preventScroll:true});m.removeAttribute('tabindex')}};
+    if(reduce){abrir();return}
+    portal.classList.add('is-closing');
+    setTimeout(abrir,1300);
+  }
+  si.addEventListener('click',permitirAcceso);
+  /* Menor de edad: pantalla de acceso restringido (no hay forma de entrar desde aquí) */
+  no.addEventListener('click',()=>{negado=true;ask.hidden=true;deny.hidden=false;foco()});
+})();
