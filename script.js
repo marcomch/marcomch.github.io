@@ -1,5 +1,5 @@
 const phone='51983983549';const beers=[['Blonde Ale','blonde'],['Red Ale','red'],['IPA','ipa'],['Hazy IPA','hazy'],['Stout','stout']];const amounts=Object.fromEntries(beers.map(b=>[b[0],0]));let capacity=12;
-const $=id=>document.getElementById(id);let waContext='';const whatsapp=message=>{const url='https://wa.me/'+phone+'?text='+encodeURIComponent(message);window.open(url,'_blank','noopener');if(typeof onWhatsappOpened==='function')onWhatsappOpened(url)};
+const $=id=>document.getElementById(id);let waContext='';const whatsapp=message=>{if(esEscritorio()){enviarCorreo(waContext==='chopp'?'chopp':'caja',message);return}const url='https://wa.me/'+phone+'?text='+encodeURIComponent(message);window.open(url,'_blank','noopener');if(typeof onWhatsappOpened==='function')onWhatsappOpened(url)};
 const setMenu=open=>{$('navlinks').classList.toggle('open',open);$('menu').setAttribute('aria-expanded',open);$('menu').setAttribute('aria-label',open?'Cerrar menú':'Abrir menú');$('menu').querySelector('use').setAttribute('href',open?'#i-close':'#i-menu')};
 $('menu').onclick=()=>setMenu(!$('navlinks').classList.contains('open'));document.querySelectorAll('#navlinks a').forEach(a=>a.addEventListener('click',()=>setMenu(false)));document.addEventListener('keydown',e=>{if(e.key==='Escape'){const was=$('navlinks').classList.contains('open');setMenu(false);if(was)$('menu').focus()}});
 /* Los brujos: [artículo, nombre]. Para cambiar un nombre, edítalo aquí. */
@@ -39,7 +39,7 @@ function renderBox(){
   prevFrascos=total;
   $('miniCount').textContent=$('boxcount').textContent;$('miniLeft').textContent=$('boxstatus').textContent;
   $('boxtotal').textContent=soles(totalPrecio());
-  $('boxhint').textContent=full?'Se abrirá WhatsApp con tu selección.':'';
+  $('boxhint').textContent=full?(esEscritorio()?'Se enviará tu solicitud por correo.':'Se abrirá WhatsApp con tu selección.'):'';
   $('sendbox').setAttribute('aria-disabled',String(!full));
   $('boxnote').textContent='';$('boxnote').classList.remove('is-warn');
   document.querySelector('.box-config .summary').classList.toggle('is-complete',full);
@@ -54,6 +54,11 @@ $('sendbox').addEventListener('click',e=>{
     $('boxnote').classList.add('is-warn');
     $('boxnote').textContent=n===1?`Aún falta 1 botella para completar tu caja de ${capacity}.`:`Aún faltan ${n} botellas para completar tu caja de ${capacity}.`;
     return;
+  }
+  if(esEscritorio()&&(!$('cajaNombre').value.trim()||!$('cajaCel').value.trim())){
+    e.preventDefault();e.stopImmediatePropagation();
+    $('boxnote').classList.add('is-warn');$('boxnote').textContent='Completa tu nombre y tu celular para enviar la solicitud.';
+    (!$('cajaNombre').value.trim()?$('cajaNombre'):$('cajaCel')).focus();return;
   }
   waContext='box';
 },true);
@@ -97,6 +102,7 @@ function validateChopp(f){
     const el=f.elements[name];
     if(!el.checkValidity())fail(el,el.closest('label'),name,msgs[name](el.validity));
   });
+  if(esEscritorio())['nombre','celular'].forEach(name=>{const el=f.elements[name];if(!el.value.trim())fail(el,el.closest('label'),name,'Completa este campo.')});
   const fs=f.querySelector('fieldset');
   if(!fs.querySelector('input[name="estilos"]:checked'))fail(fs.querySelector('input[name="estilos"]'),fs,'estilos','Selecciona al menos un estilo de cerveza.');
   if(first)first.focus();
@@ -346,4 +352,77 @@ const ARANA={velocidad:150,espera:20000,retraso:500,tamano:44};
   }
   function go(){if(!raf&&!document.hidden&&inst.some(o=>o.vis)){last=performance.now();raf=requestAnimationFrame(frame)}}
   document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelAnimationFrame(raf);raf=0}else go()});
+})();
+
+
+/* =====================================================================
+   ENVÍO POR CORREO (SOLO ESCRITORIO) · en móvil todo sigue abriendo WhatsApp
+   >>> CAMBIA AQUÍ el correo de destino, el servicio de envío y los asuntos <<<
+   El servicio (FormSubmit, gratuito) recibe el formulario y lo reenvía al correo de destino.
+   La PRIMERA vez que alguien envíe, FormSubmit manda un correo de activación a ese Gmail: hay que abrirlo y pulsar "Activate".
+   Si prefieres otro servicio (Formspree, etc.), cambia solo "servicio".
+   ===================================================================== */
+const CORREO={
+  destino:'cerveceria.embrujo@gmail.com',
+  servicio:'https://formsubmit.co/ajax/',
+  asuntoInfo:'Se requiere información',   /* Escríbenos (parte superior) y Experiencias */
+  asuntoPedido:'Solicitud de pedido'      /* Arma tu caja y Reserva tu chopp */
+};
+/* Escritorio = ratón + pantalla ancha. En celular y tablet se mantiene WhatsApp. */
+function esEscritorio(){return matchMedia('(hover: hover) and (pointer: fine)').matches&&innerWidth>=900}
+/* Textos de los botones: en escritorio hablan de correo, en móvil de WhatsApp (edítalos aquí) */
+const BTN={caja:['Enviar solicitud','Solicitar por WhatsApp'],chopp:['Enviar cotización','Cotizar por WhatsApp']};
+(()=>{const m=()=>{const pc=esEscritorio();document.documentElement.classList.toggle('es-pc',pc);
+  [['#sendbox','caja'],['#choppform [type=submit]','chopp']].forEach(([q,k])=>{const b=document.querySelector(q);if(!b)return;b.querySelector('.lbl').textContent=BTN[k][pc?0:1];b.querySelector('use').setAttribute('href',pc?'#i-mail':'#i-whatsapp')});
+  if(typeof renderBox==='function')renderBox()};
+  m();addEventListener('resize',m)})();
+const MAIL_OK='¡Listo! Recibimos tu mensaje y te contactaremos pronto.';
+const MAIL_ERR='No pudimos enviar tu mensaje. Inténtalo de nuevo o escríbenos a '+CORREO.destino+'.';
+async function postCorreo(asunto,nombre,celular,mensaje){
+  const r=await fetch(CORREO.servicio+CORREO.destino,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},
+    body:JSON.stringify({_subject:asunto,_captcha:'false',_template:'box',Nombre:nombre,Celular:celular,Mensaje:mensaje})});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok||j.success==='false')throw new Error('envio');
+}
+/* Arma tu caja / Reserva tu chopp: usa el mismo mensaje que iría a WhatsApp */
+async function enviarCorreo(tipo,mensaje){
+  const box=tipo==='caja',el=$(box?'boxnote':'choppnote'),f=$('choppform');
+  const nombre=box?$('cajaNombre').value.trim():f.elements.nombre.value.trim(),celular=box?$('cajaCel').value.trim():f.elements.celular.value.trim();
+  const btn=box?$('sendbox'):f.querySelector('[type=submit]');
+  el.classList.remove('is-warn');el.textContent='Enviando…';btn.disabled=true;
+  try{await postCorreo(CORREO.asuntoPedido,nombre,celular,mensaje);el.textContent=MAIL_OK}
+  catch(e){el.classList.add('is-warn');el.textContent=MAIL_ERR}
+  btn.disabled=false;
+}
+/* Escríbenos (barra superior) y Experiencias: formulario en ventana sobre la misma página */
+(()=>{
+  const dlg=document.createElement('dialog');dlg.className='mail-dlg';dlg.setAttribute('aria-labelledby','mdT');
+  const SK='<svg class="sk" viewBox="0 0 80 90" aria-hidden="true"><path d="M8 40C8 14 72 14 72 40c0 12-8 16-10 22H18C16 56 8 52 8 40z" fill="#e8dcc0" stroke="#1b110c" stroke-width="3" stroke-linejoin="round"/><ellipse cx="27" cy="38" rx="9" ry="10.5" fill="#1b110c"/><ellipse cx="53" cy="38" rx="9" ry="10.5" fill="#1b110c"/><path d="M40 47l-4 8h8z" fill="#1b110c"/><path d="M20 62h40l-2 16c-6 8-30 8-36 0z" fill="#e8dcc0" stroke="#1b110c" stroke-width="3" stroke-linejoin="round"/></svg>';
+  /* Textos del formulario: edítalos aquí */
+  const TXT={escribenos:['ESCRÍBENOS','Cuéntanos qué necesitas y te respondemos pronto.'],experiencias:['CONJUREMOS ALGO JUNTOS','Eventos, alianzas y experiencias a medida.']};
+  dlg.innerHTML='<form class="pap" novalidate><span class="web wa" aria-hidden="true"></span><span class="web wb" aria-hidden="true"></span>'+SK+SK.replace('class="sk"','class="sk sk2"')+
+    '<button type="button" class="md-x" aria-label="Cerrar">&times;</button><h2 id="mdT"></h2><p class="md-sub"></p>'+
+    '<div class="field-row"><label>Nombre<input name="n" autocomplete="name" placeholder="Tu nombre"></label><label>Celular<input name="c" type="tel" inputmode="tel" autocomplete="tel" placeholder="Ej. 983 983 549"></label></div>'+
+    '<label>Comentarios<textarea name="m" rows="4" placeholder="¿En qué podemos ayudarte?"></textarea></label>'+
+    '<p class="form-note" role="status" aria-live="polite"></p><button class="btn" type="submit">Enviar</button></form>';
+  document.body.appendChild(dlg);
+  const f=dlg.querySelector('form'),note=f.querySelector('.form-note'),btn=f.querySelector('[type=submit]');
+  document.querySelectorAll('[data-correo]').forEach(a=>a.addEventListener('click',e=>{
+    if(!esEscritorio())return;               /* en móvil el enlace abre WhatsApp como siempre */
+    e.preventDefault();const t=TXT[a.dataset.correo];
+    f.querySelector('h2').textContent=t[0];f.querySelector('.md-sub').textContent=t[1];note.textContent='';note.classList.remove('is-warn');
+    dlg.showModal();document.documentElement.classList.add('fl-lock');f.elements.n.focus();
+  }));
+  dlg.querySelector('.md-x').onclick=()=>dlg.close();
+  dlg.addEventListener('click',e=>{if(e.target===dlg)dlg.close()});
+  dlg.addEventListener('close',()=>document.documentElement.classList.remove('fl-lock'));
+  f.addEventListener('submit',async e=>{
+    e.preventDefault();note.classList.remove('is-warn');
+    const n=f.elements.n.value.trim(),c=f.elements.c.value.trim(),m=f.elements.m.value.trim();
+    if(!n||!c){note.classList.add('is-warn');note.textContent='Completa tu nombre y tu celular para enviar.';(n?f.elements.c:f.elements.n).focus();return}
+    note.textContent='Enviando…';btn.disabled=true;
+    try{await postCorreo(CORREO.asuntoInfo,n,c,m||'(sin comentarios)');note.textContent=MAIL_OK;f.reset();setTimeout(()=>{if(dlg.open)dlg.close()},2600)}
+    catch(err){note.classList.add('is-warn');note.textContent=MAIL_ERR}
+    btn.disabled=false;
+  });
 })();
